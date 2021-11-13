@@ -4508,7 +4508,7 @@ void COOLWSD::cleanup()
 int COOLWSD::main(const std::vector<std::string>& /*args*/)
 {
 #if MOBILEAPP && !defined IOS
-    SigUtil::resetTerminationFlag();
+    SigUtil::resetTerminationFlags();
 #endif
 
     int returnValue;
