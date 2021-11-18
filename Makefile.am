@@ -414,6 +414,7 @@ clean-local:
 	if test "z@JAILS_PATH@" != "z"; then rm -rf "@JAILS_PATH@"; fi
 	if test "z@SYSTEMPLATE_PATH@" != "z"; then rm -rf "@SYSTEMPLATE_PATH@"; fi
 	rm -rf "${top_srcdir}/loleaflet"
+	rm -rf loolconfig loolconvert loolforkit loolmap loolmount loolwsd loolwsd-systemplate-setup
 
 if ENABLE_DEBUG
 # can write to /tmp/loolwsd.log
