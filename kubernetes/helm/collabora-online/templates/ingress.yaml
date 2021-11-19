@@ -5,6 +5,9 @@ metadata:
   namespace: {{ .Values.namespace.collabora }}
   annotations:
     nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_WOPISrc"
+    {{- if .Values.hosts.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.hosts.clusterIssuer }}
+    {{- end }}
 spec:
   rules:
   - host: {{ .Values.hosts.host }}
@@ -17,3 +20,9 @@ spec:
             name: {{ .Values.global.app.service.name }}
             port:
               number: 9980
+{{- if .Values.hosts.tls }}
+  tls:
+  - hosts:
+    - {{ .Values.hosts.host }}
+    secretName: collabora-tls
+{{- end }}
