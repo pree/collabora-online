@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Values.namespace.collabora }}
   annotations:
     nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_WOPISrc"
+    kubernetes.io/ingress.class: "nginx"
     {{- if .Values.hosts.tls }}
     cert-manager.io/cluster-issuer: {{ .Values.hosts.clusterIssuer }}
     {{- end }}
