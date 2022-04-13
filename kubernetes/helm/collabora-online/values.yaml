@@ -65,8 +65,6 @@ environmentVariablesCool:
     value:
   - name: password
     value:
-  - name: domain
-    value: collabora
 
 service:
   name: collabora-online
