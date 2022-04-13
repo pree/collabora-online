@@ -57,6 +57,11 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 				'context': 'Draw|DrawLine|3DObject|MultiObject|Graphic|DrawFontwork'
 			},
 			{
+				'text': _('~View'),
+				'id': 'View',
+				'name': 'View',
+			},
+			{
 				'text': _('~Help'),
 				'id': '-2',
 				'name': 'Help',
@@ -76,6 +81,7 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 				this.getFormatTab(),
 				this.getTableTab(),
 				this.getDrawTab(),
+				this.getViewTab(),
 				this.getHelpTab()
 			], selectedId);
 	},
@@ -86,8 +92,20 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 		var hasPrint = !this._map['wopi'].HidePrintOption;
 		var hasSaveAs = !this._map['wopi'].UserCanNotWriteRelative;
 		var hasShare = this._map['wopi'].EnableShare;
+		var hasGroupedDownloadAs = !!window.groupDownloadAsForNb;
 
 		var content = [
+			{
+				'type': 'toolbox',
+				'children': [
+					{
+						'id': 'file-save',
+						'type': 'bigtoolitem',
+						'text': _('Save'),
+						'command': '.uno:Save'
+					}
+				]
+			},
 			hasSaveAs ?
 				{
 					'id': 'file-saveas',
@@ -121,81 +139,102 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 					'type': 'bigtoolitem',
 					'text': _UNO('.uno:Print', 'text'),
 					'command': '.uno:Print'
-				} : {},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'id': 'downloadas-odt',
-						'type': 'menubartoolitem',
-						'text': _('ODF Text Document (.odt)'),
-						'command': ''
-					},
-					{
-						'id': 'downloadas-rtf',
-						'type': 'menubartoolitem',
-						'text': _('Rich Text (.rtf)'),
-						'command': ''
-					},
-				],
-				'vertical': 'true'
-			},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'id': 'downloadas-doc',
-						'type': 'menubartoolitem',
-						'text': _('Word 2003 Document (.doc)'),
-						'command': ''
-					},
-					{
-						'id': 'downloadas-docx',
-						'type': 'menubartoolitem',
-						'text': _('Word Document (.docx)'),
-						'command': ''
-					},
-				],
-				'vertical': 'true'
-			},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'id': 'downloadas-pdf',
-						'type': 'menubartoolitem',
-						'text': _('PDF Document (.pdf)'),
-						'command': ''
-					},
-					{
-						'id': 'downloadas-epub',
-						'type': 'menubartoolitem',
-						'text': _('EPUB Document (.epub)'),
-						'command': ''
-					},
-				],
-				'vertical': 'true'
-			},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'id': 'repair',
-						'type': 'menubartoolitem',
-						'text': _('Repair'),
-						'command': _('Repair')
-					},
-					hasSigning ?
-						{
-							'id': 'signdocument',
-							'type': 'menubartoolitem',
-							'text': _('Sign document'),
-							'command': ''
-						} : {},
-				],
-				'vertical': 'true'
-			}
+				} : {}
 		];
+
+		if (hasGroupedDownloadAs) {
+			content.push({
+				'id': 'downloadas-container',
+				'type': 'container',
+				'text': '',
+				'enabled': 'true',
+				'children': [
+					{
+						'id': 'downloadas2',
+						'type': 'menubartoolitem',
+						'text': _('Download as'),
+						'command': '.uno:InsertGraphic'
+					}
+				]
+			});
+		} else {
+			content = content.concat([
+				{
+					'type': 'container',
+					'children': [
+						{
+							'id': 'downloadas-odt',
+							'type': 'menubartoolitem',
+							'text': _('ODF Text Document (.odt)'),
+							'command': ''
+						},
+						{
+							'id': 'downloadas-rtf',
+							'type': 'menubartoolitem',
+							'text': _('Rich Text (.rtf)'),
+							'command': ''
+						},
+					],
+					'vertical': 'true'
+				},
+				{
+					'type': 'container',
+					'children': [
+						{
+							'id': 'downloadas-doc',
+							'type': 'menubartoolitem',
+							'text': _('Word 2003 Document (.doc)'),
+							'command': ''
+						},
+						{
+							'id': 'downloadas-docx',
+							'type': 'menubartoolitem',
+							'text': _('Word Document (.docx)'),
+							'command': ''
+						},
+					],
+					'vertical': 'true'
+				},
+				{
+					'type': 'container',
+					'children': [
+						{
+							'id': 'downloadas-pdf',
+							'type': 'menubartoolitem',
+							'text': _('PDF Document (.pdf)'),
+							'command': ''
+						},
+						{
+							'id': 'downloadas-epub',
+							'type': 'menubartoolitem',
+							'text': _('EPUB Document (.epub)'),
+							'command': ''
+						},
+					],
+					'vertical': 'true'
+				}
+			]);
+		}
+
+		content.push({
+			'type': 'container',
+			'children': [
+				{
+					'id': 'repair',
+					'type': 'menubartoolitem',
+					'text': _('Repair'),
+					'command': _('Repair')
+				},
+				hasSigning ?
+					{
+						'id': 'signdocument',
+						'type': 'menubartoolitem',
+						'text': _('Sign document'),
+						'command': ''
+					} : {},
+			],
+			'vertical': 'true'
+		});
 
 		return this.getTabPage('File', content);
 	},
@@ -208,6 +247,17 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 			{
 				'type': 'container',
 				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'forum',
+								'type': 'bigtoolitem',
+								'text': _('Forum'),
+								'command': '.uno:ForumHelp'
+							}
+						]
+					},
 					{
 						'type': 'toolbox',
 						'children': [
@@ -246,7 +296,7 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 							'type': 'toolbox',
 							'children': [
 								{
-									'id': 'latest-updates',
+									'id': 'latestupdates',
 									'type': 'bigtoolitem',
 									'text': _('Latest Updates'),
 									'command': '.uno:LatestUpdates'
@@ -285,6 +335,23 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 
 	getHomeTab: function() {
 		var content = [
+			{
+				'id': 'home-undo-redo',
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolitem',
+						'text': _UNO('.uno:Undo'),
+						'command': '.uno:Undo'
+					},
+					{
+						'type': 'toolitem',
+						'text': _UNO('.uno:Redo'),
+						'command': '.uno:Redo'
+					},
+				],
+				'vertical': 'true'
+			},
 			{
 				'type': 'bigtoolitem',
 				'text': _UNO('.uno:Paste'),
@@ -409,7 +476,7 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 									},
 									{
 										'type': 'toolitem',
-										'text': _UNO('.uno:CharSpacing', 'text'),
+										'text': _UNO('.uno:Spacing'),
 										'command': '.uno:CharSpacing'
 									},
 									{
@@ -875,6 +942,91 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 		return this.getTabPage('Insert', content);
 	},
 
+	getViewTab: function() {
+		var content = [
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:ControlCodes', 'text'),
+				'command': '.uno:ControlCodes'
+			},
+			{
+				'id': 'fullscreen',
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:FullScreen'),
+				'command': '.uno:FullScreen'
+			},
+			{
+				'id': 'zoomreset',
+				'type': 'menubartoolitem',
+				'text': _('Reset zoom'),
+				'command': _('Reset zoom')
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'zoomout',
+								'type': 'menubartoolitem',
+								'text': _UNO('.uno:ZoomMinus'),
+								'command': '.uno:ZoomMinus'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'zoomin',
+								'type': 'menubartoolitem',
+								'text': _UNO('.uno:ZoomPlus'),
+								'command': '.uno:ZoomPlus'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			},
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:Sidebar'),
+				'command': '.uno:Sidebar'
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'showruler',
+								'type': 'menubartoolitem',
+								'text': _('Toggle Ruler'),
+								'command': _('Show Ruler')
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'showstatusbar',
+								'type': 'menubartoolitem',
+								'text': _('Toggle Status Bar'),
+								'command': _('Show Status Bar')
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			}
+		];
+
+		return this.getTabPage('View', content);
+	},
+
 	getLayoutTab: function() {
 		var content = [
 			{
@@ -967,97 +1119,8 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 			},
 			{
 				'type': 'bigtoolitem',
-				'text': _UNO('.uno:ControlCodes', 'text'),
-				'command': '.uno:ControlCodes'
-			},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'fullscreen',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:FullScreen'),
-								'command': '.uno:FullScreen'
-							}
-						]
-					},
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomreset',
-								'type': 'menubartoolitem',
-								'text': _('Reset zoom'),
-								'command': _('Reset zoom')
-							}
-						]
-					}
-				],
-				'vertical': 'true'
-			},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomout',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:ZoomMinus'),
-								'command': '.uno:ZoomMinus'
-							}
-						]
-					},
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomin',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:ZoomPlus'),
-								'command': '.uno:ZoomPlus'
-							}
-						]
-					}
-				],
-				'vertical': 'true'
-			},
-			{
-				'type': 'bigtoolitem',
-				'text': _UNO('.uno:Sidebar'),
-				'command': '.uno:Sidebar'
-			},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'showruler',
-								'type': 'menubartoolitem',
-								'text': _('Show Ruler'),
-								'command': _('Show Ruler')
-							}
-						]
-					},
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'showstatusbar',
-								'type': 'menubartoolitem',
-								'text': _('Show Status Bar'),
-								'command': _('Show Status Bar')
-							}
-						]
-					}
-				],
-				'vertical': 'true'
+				'text': _UNO('.uno:SelectAll'),
+				'command': '.uno:SelectAll'
 			},
 			{
 				'type': 'container',
@@ -1377,6 +1440,12 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 				'command': '.uno:ThesaurusDialog'
 			},
 			{
+				'id': 'LanguageMenu',
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:LanguageMenu'),
+				'command': '.uno:LanguageMenu'
+			},
+			{
 				'type': 'container',
 				'children': [
 					{
@@ -1554,6 +1623,11 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 				'type': 'bigtoolitem',
 				'text': _UNO('.uno:AcceptTrackedChanges', 'text'),
 				'command': '.uno:AcceptTrackedChanges'
+			},
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:AccessibilityCheck', 'text'),
+				'command': '.uno:AccessibilityCheck'
 			}
 		];
 
@@ -2115,6 +2189,26 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 		};
 	},
 
+	// filter out empty children options so that the HTML isn't cluttered
+	// and individual items missaligned
+	cleanOpts: function(children) {
+		var that = this;
+
+		return children.map(function(c) {
+			if (!c.type) { return null; }
+			
+			var opts = Object.assign(c, {});
+
+			if (c.children && c.children.length) {
+				opts.children = that.cleanOpts(c.children);
+			}
+
+			return opts;
+		}).filter(function(c) {
+			return c !== null;
+		});
+	},
+
 	getTabPage: function(tabName, content) {
 		return {
 			'id': '',
@@ -2133,7 +2227,7 @@ L.Control.NotebookbarWriter = L.Control.Notebookbar.extend({
 							'type': 'container',
 							'text': '',
 							'enabled': 'true',
-							'children': content
+							'children': this.cleanOpts(content)
 						}
 					]
 				}

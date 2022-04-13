@@ -3,7 +3,7 @@
  * L.Control.JSDialog
  */
 
-/* global Hammer */
+/* global Hammer app */
 L.Control.JSDialog = L.Control.extend({
 	options: {
 		snackbarTimeout: 6000
@@ -43,22 +43,34 @@ L.Control.JSDialog = L.Control.extend({
 			if (this.dialogs[id].isPopup)
 				this.closePopover(id, sendCloseEvent);
 			else
-				this.closeDialog(id);
+				this.closeDialog(id, sendCloseEvent);
 		}
 	},
 
-	closeDialog: function(id) {
+	closeDialog: function(id, sendCloseEvent) {
+		if (!id || !this.dialogs[id]) {
+			console.warn('missing dialog data');
+			return;
+		}
+
 		var builder = this.clearDialog(id);
-		builder.callback('dialog', 'close', {id: '__DIALOG__'}, null, builder);
+		if (sendCloseEvent !== false)
+			builder.callback('dialog', 'close', {id: '__DIALOG__'}, null, builder);
 	},
 
+	// sendCloseEvent means that we only send a command to the server
+	// we want to kill HTML popup when we receive feedback from the server
 	closePopover: function(id, sendCloseEvent) {
-		if (!id || !this.dialogs[id])
+		if (!id || !this.dialogs[id]) {
+			console.warn('missing popover data');
 			return;
+		}
 
-		L.DomUtil.remove(this.dialogs[id].overlay);
+		if (!sendCloseEvent)
+			L.DomUtil.remove(this.dialogs[id].overlay);
+
 		var clickToClose = this.dialogs[id].clickToClose;
-		var builder = this.clearDialog(id);
+		var builder = this.dialogs[id].builder;
 
 		if (sendCloseEvent) {
 			if (clickToClose && L.DomUtil.hasClass(clickToClose, 'menubutton'))
@@ -66,6 +78,8 @@ L.Control.JSDialog = L.Control.extend({
 			else
 				builder.callback('popover', 'close', {id: '__POPOVER__'}, null, builder);
 		}
+		else
+			this.clearDialog(id);
 	},
 
 	setTabs: function(tabs, builder) {
@@ -84,6 +98,23 @@ L.Control.JSDialog = L.Control.extend({
 		// nothing to do here
 	},
 
+	_getDefaultButtonId: function(widgets) {
+		for (var i in widgets) {
+			if (widgets[i].type === 'pushbutton' || widgets[i].type === 'okbutton') {
+				if (widgets[i].has_default === true)
+					return widgets[i].id;
+			}
+
+			if (widgets[i].children) {
+				var found = this._getDefaultButtonId(widgets[i].children);
+				if (found)
+					return found;
+			}
+		}
+
+		return null;
+	},
+
 	onJSDialog: function(e) {
 		var that = this;
 		var posX = 0;
@@ -92,6 +123,7 @@ L.Control.JSDialog = L.Control.extend({
 		var callback = e.callback;
 		var isSnackbar = data.type === 'snackbar';
 		var isModalPopup = data.type === 'modalpopup' || isSnackbar;
+		var focusWidgetId = data.init_focus_id;
 
 		if (data.action === 'fadeout')
 		{
@@ -106,7 +138,7 @@ L.Control.JSDialog = L.Control.extend({
 		}
 		else if (data.action === 'close')
 		{
-			this.close(data.id);
+			this.close(data.id, false);
 			return;
 		}
 
@@ -117,11 +149,77 @@ L.Control.JSDialog = L.Control.extend({
 			toRemove = this.dialogs[data.id].container;
 		}
 
-		container = L.DomUtil.create('div', 'jsdialog-container ui-dialog ui-widget-content lokdialog_container', document.body);
+		var isDocumentAreaPopup = data.popupParent === '_POPOVER_'
+			&& data.posx !== undefined && data.posy !== undefined;
+		var isCalc = this.map._docLayer ? (this.map._docLayer._docType === 'spreadsheet') : false;
+		var isAutofilter = isDocumentAreaPopup && isCalc;
+
+		var containerParent = isDocumentAreaPopup ?
+			document.getElementById('document-container') : document.body;
+
+		if (isAutofilter)
+		{
+			// this is autofilter popup
+
+			// RTL mode: only difference is when file is RTL not UI
+			// var isViewRTL = document.documentElement.dir === 'rtl';
+			var isSpreadsheetRTL = this.map._docLayer.isCalcRTL();
+
+			var scale = this.map.zoomToFactor(this.map.getZoom());
+			var origin = this.map.getPixelOrigin();
+			var panePos = this.map._getMapPanePos();
+
+			var offsetX = isSpreadsheetRTL ? 0 : app.sectionContainer.getSectionWithName(L.CSections.RowHeader.name).size[0];
+			var offsetY = app.sectionContainer.getSectionWithName(L.CSections.ColumnHeader.name).size[1];
+
+			var left = parseInt(data.posx) * scale;
+			var top = parseInt(data.posy) * scale;
+
+			if (left < 0)
+				left = -1 * left;
+
+			var splitPanesContext = this.map.getSplitPanesContext();
+			var splitPos = new L.Point(0, 0);
+
+			if (splitPanesContext)
+				splitPos = splitPanesContext.getSplitPos();
+
+			var newLeft = left + panePos.x - origin.x;
+			if (left >= splitPos.x && newLeft >= 0)
+				left = newLeft;
+
+			var newTop = top + panePos.y - origin.y;
+			if (top >= splitPos.y && newTop >= 0)
+				top = newTop;
+
+			if (isSpreadsheetRTL)
+				left = this.map._size.x - left;
+
+			posX = left + offsetX;
+			posY = top + offsetY;
+		}
+
+		// it has to be form to handle default button
+		container = L.DomUtil.create('form', 'jsdialog-container ui-dialog ui-widget-content lokdialog_container', containerParent);
 		container.id = data.id;
 		container.style.visibility = 'hidden';
 		if (data.collapsed && (data.collapsed === 'true' || data.collapsed === true))
 			L.DomUtil.addClass(container, 'collapsed');
+		// prevent from reloading
+		container.addEventListener('submit', function (event) { event.preventDefault(); });
+
+		var defaultButtonId = this._getDefaultButtonId(data.children);
+
+		// it has to be first button in the form
+		var defaultButton = L.DomUtil.createWithId('button', 'default-button', container);
+		defaultButton.style.display = 'none';
+		defaultButton.onclick = function() {
+			if (defaultButtonId) {
+				var button = container.querySelector('#' + defaultButtonId);
+				if (button)
+					button.click();
+			}
+		};
 
 		if (!isModalPopup) {
 			var titlebar = L.DomUtil.create('div', 'ui-dialog-titlebar ui-corner-all ui-widget-header ui-helper-clearfix', container);
@@ -143,16 +241,25 @@ L.Control.JSDialog = L.Control.extend({
 			tabs: tabs
 		};
 
-		var builder = new L.control.jsDialogBuilder({windowId: data.id, mobileWizard: this, map: this.map, cssClass: 'jsdialog', callback: callback});
+		var builder = new L.control.jsDialogBuilder(
+			{
+				windowId: data.id,
+				mobileWizard: this,
+				map: this.map,
+				cssClass: 'jsdialog' + (isAutofilter ? ' autofilter' : ''),
+				callback: callback
+			});
 
 		if (isModalPopup && !isSnackbar) {
-			var overlay = L.DomUtil.create('div', builder.options.cssClass + ' jsdialog-overlay ' + (data.cancellable ? 'cancellable' : ''), document.body);
+			var overlay = L.DomUtil.create('div', builder.options.cssClass + ' jsdialog-overlay ' + (data.cancellable ? 'cancellable' : ''), containerParent);
 			overlay.id = data.id + '-overlay';
 			if (data.cancellable)
-				overlay.onclick = function () { that.closePopover(data.id, true); };
+				overlay.onclick = function () { that.close(data.id, true); };
 		}
 
 		builder.build(content, [data]);
+		if (isAutofilter)
+			content.firstChild.dir = document.documentElement.dir;
 
 		// We show some dialogs such as Macro Security Warning Dialog and Text Import Dialog (csv)
 		// They are displayed before the document is loaded
@@ -178,7 +285,7 @@ L.Control.JSDialog = L.Control.extend({
 
 		if (!isModalPopup) {
 			button.onclick = function() {
-				that.closeDialog(data.id);
+				that.closeDialog(data.id, true);
 			};
 
 			var hammerTitlebar = new Hammer(titlebar);
@@ -193,27 +300,60 @@ L.Control.JSDialog = L.Control.extend({
 		if (clickToCloseId && clickToCloseId.indexOf('.uno:') === 0)
 			clickToCloseId = clickToCloseId.substr('.uno:'.length);
 
-		var setupPosition = function() {
+		var setupPosition = function(force) {
 			if (isModalPopup && data.popupParent) {
 				// in case of toolbox we want to create popup positioned by toolitem not toolbox
 				var parent = L.DomUtil.get(data.popupParent);
-				if (clickToCloseId) {
+
+				if (clickToCloseId && parent) {
 					var childButton = parent.querySelector('[id=\'' + clickToCloseId + '\']');
 					if (childButton)
 						parent = childButton;
 				}
 
-				posX = parent.getBoundingClientRect().left;
-				posY = parent.getBoundingClientRect().bottom + 5;
+				if (!parent && data.popupParent === '_POPOVER_') {
+					// popup was trigerred not by toolbar or menu button, probably on tile area
+					if (isAutofilter) {
+						// we are already done
+					} else if (isDocumentAreaPopup) {
+						console.warn('other popup than autofilter in the document area');
+						posX = data.posx;
+						posY = data.posy;
+					} else {
+						// validity listbox
+						parent = document.querySelector('.spreadsheet-drop-down-marker');
+					}
+				}
 
-				if (posX + content.clientWidth > window.innerWidth)
-					posX -= posX + content.clientWidth + 10 - window.innerWidth;
-				if (posY + content.clientHeight > window.innerHeight)
-					posY -= posY + content.clientHeight + 10 - window.innerHeight;
+				if (parent) {
+					posX = parent.getBoundingClientRect().left;
+					posY = parent.getBoundingClientRect().bottom + 5;
+
+					if (posX + content.clientWidth > window.innerWidth)
+						posX -= posX + content.clientWidth + 10 - window.innerWidth;
+					if (posY + content.clientHeight > window.innerHeight)
+						posY -= posY + content.clientHeight + 10 - window.innerHeight;
+				} else if (isDocumentAreaPopup) {
+					var height = container.getBoundingClientRect().height;
+					if (posY + height > containerParent.getBoundingClientRect().height) {
+						var newTopPosition = posY - height;
+						if (newTopPosition < 0)
+							newTopPosition = 0;
+						posY = newTopPosition;
+					}
+
+					var width = container.getBoundingClientRect().width;
+					if (posX + width > containerParent.getBoundingClientRect().width) {
+						var newLeftPosition = posX - width;
+						if (newLeftPosition < 0)
+							newLeftPosition = 0;
+						posX = newLeftPosition;
+					}
+				}
 			} else if (isSnackbar) {
 				posX = window.innerWidth/2 - container.offsetWidth/2;
 				posY = window.innerHeight - container.offsetHeight - 40;
-			} else if (posX === 0 && posY === 0) {
+			} else if (force || (posX === 0 && posY === 0)) {
 				posX = window.innerWidth/2 - container.offsetWidth/2;
 				posY = window.innerHeight/2 - container.offsetHeight/2;
 			}
@@ -221,6 +361,24 @@ L.Control.JSDialog = L.Control.extend({
 
 		setupPosition();
 		this.updatePosition(container, posX, posY);
+
+		// after some updates, eg. drawing areas window can be bigger than initially
+		// update possition according to that with small delay
+
+		var that = this;
+		var initialPositionSetup = function (force) {
+			setupPosition(force);
+			that.updatePosition(container, posX, posY);
+			container.style.visibility = '';
+			if (toRemove)
+				L.DomUtil.remove(toRemove);
+			var focusWidget = focusWidgetId ?
+				container.querySelector('[id=\'' + focusWidgetId + '\']') : null;
+			if (focusWidget)
+				focusWidget.focus();
+			if (focusWidget && document.activeElement !== focusWidget)
+				console.error('cannot get focus for widget: "' + focusWidgetId + '"');
+		};
 
 		this.dialogs[data.id] = {
 			container: container,
@@ -230,20 +388,12 @@ L.Control.JSDialog = L.Control.extend({
 			startY: posY,
 			clickToClose: clickToCloseId ? L.DomUtil.get(clickToCloseId) : null,
 			overlay: overlay,
-			isPopup: isModalPopup
+			isPopup: isModalPopup,
+			invalidated: false,
+			setupPosFunc: initialPositionSetup
 		};
 
-		// after some updates, eg. drawing areas window can be bigger than initially
-		// update possition according to that with small delay
-
-		var that = this;
-		setTimeout(function () {
-			setupPosition();
-			that.updatePosition(container, posX, posY);
-			container.style.visibility = '';
-			if (toRemove)
-				L.DomUtil.remove(toRemove);
-		}, 200);
+		setTimeout(initialPositionSetup, 200);
 
 		if (isSnackbar) {
 			setTimeout(function () { that.closePopover(data.id, false); }, this.options.snackbarTimeout);
@@ -262,7 +412,7 @@ L.Control.JSDialog = L.Control.extend({
 
 		var control = dialog.querySelector('[id=\'' + data.control.id + '\']');
 		if (!control) {
-			console.warn('jsdialogupdate: not found control with id: "' + data.control.id + '"');
+			window.app.console.warn('jsdialogupdate: not found control with id: "' + data.control.id + '"');
 			return;
 		}
 
@@ -292,6 +442,12 @@ L.Control.JSDialog = L.Control.extend({
 
 		if (focusedId)
 			dialog.querySelector('[id=\'' + focusedId + '\']').focus();
+
+		var dialogInfo = this.dialogs[data.id];
+		if (!dialogInfo.invalidated && dialogInfo.setupPosFunc) {
+			setTimeout(function () { dialogInfo.setupPosFunc(true); }, 100);
+			dialogInfo.invalidated = true;
+		}
 	},
 
 	onJSAction: function (e) {

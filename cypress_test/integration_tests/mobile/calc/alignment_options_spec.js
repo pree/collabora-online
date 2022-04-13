@@ -1,4 +1,4 @@
-/* global describe it cy beforeEach require afterEach expect*/
+/* global describe it cy beforeEach Cypress require afterEach expect*/
 
 var helper = require('../../common/helper');
 var calcHelper = require('../../common/calc_helper');
@@ -6,10 +6,11 @@ var mobileHelper = require('../../common/mobile_helper');
 var calcMobileHelper = require('./calc_mobile_helper');
 
 describe('Change alignment settings.', function() {
-	var testFileName = 'alignment_options.ods';
+	var origTestFileName = 'alignment_options.ods';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'calc');
+		testFileName = helper.beforeAll(origTestFileName, 'calc');
 
 		// Click on edit button
 		mobileHelper.enableEditingMobile();
@@ -24,7 +25,16 @@ describe('Change alignment settings.', function() {
 
 		helper.getCursorPos('left', 'currentTextEndPos');
 
-		calcHelper.removeTextSelection();
+		//remove text selection
+		cy.get('#tb_actionbar_item_acceptformula').should('be.visible')
+			.then($ele =>{
+				if (Cypress.dom.isVisible($ele)) {
+					cy.wrap($ele).click();
+				}
+			});
+
+		cy.get('.cursor-overlay .blinking-cursor')
+			.should('not.exist');
 	}
 
 	function openAlignmentPaneForFirstCell() {
@@ -89,13 +99,13 @@ describe('Change alignment settings.', function() {
 	it('Right-to-left and left-to-right writing mode.', function() {
 		openAlignmentPaneForFirstCell();
 
-		helper.clickOnIdle('#ParaRightToLeft');
+		helper.clickOnIdle('.unoParaRightToLeft');
 
 		// TODO: we don't have a way of testing this
 		// copy container doesn't have info about this
 		cy.wait(500);
 
-		helper.clickOnIdle('#ParaLeftToRight');
+		helper.clickOnIdle('.unoParaLeftToRight');
 
 		cy.wait(500);
 	});

@@ -31,7 +31,7 @@ fi;
 echo "Using Docker Hub Repository: '$DOCKER_HUB_REPO' with tag '$DOCKER_HUB_TAG'."
 
 if [ -z "$CORE_BRANCH" ]; then
-  CORE_BRANCH="distro/collabora/cp-6.4"
+  CORE_BRANCH="distro/collabora/co-22.05"
 fi;
 echo "Building core branch '$CORE_BRANCH'"
 
@@ -76,11 +76,11 @@ mkdir -p "$INSTDIR"
 ##### build static poco #####
 
 if test ! -f poco/lib/libPocoFoundation.a ; then
-    wget https://github.com/pocoproject/poco/archive/poco-1.10.1-release.tar.gz
-    tar -xzf poco-1.10.1-release.tar.gz
-    cd poco-poco-1.10.1-release/
-    ./configure --static --no-tests --no-samples --no-sharedlibs --cflags="-fPIC" --omit=Zip,Data,Data/SQLite,Data/ODBC,Data/MySQL,MongoDB,PDF,CppParser,PageCompiler,Redis,Encodings --prefix=$BUILDDIR/poco
-    make -j 8
+    wget https://github.com/pocoproject/poco/archive/poco-1.11.1-release.tar.gz
+    tar -xzf poco-1.11.1-release.tar.gz
+    cd poco-poco-1.11.1-release/
+    ./configure --static --no-tests --no-samples --no-sharedlibs --cflags="-fPIC" --omit=Zip,Data,Data/SQLite,Data/ODBC,Data/MySQL,MongoDB,PDF,CppParser,PageCompiler,Redis,Encodings,ActiveRecord --prefix=$BUILDDIR/poco
+    make -j $(nproc)
     make install
     cd ..
 fi
@@ -106,7 +106,7 @@ fi
 ##### LOKit (core) #####
 
 # build
-if [ "$CORE_BRANCH" == "distro/collabora/cp-6.4" ]; then
+if [ "$CORE_BRANCH" == "distro/collabora/co-22.05" ]; then
   ( cd core && ./autogen.sh --with-distro=CPLinux-LOKit --disable-epm --without-package-format ) || exit 1
 else
   ( cd core && ./autogen.sh --with-distro=LibreOfficeOnline ) || exit 1
@@ -122,7 +122,7 @@ cp -a core/instdir "$INSTDIR"/opt/lokit
 # build
 ( cd online && ./autogen.sh ) || exit 1
 ( cd online && ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --enable-silent-rules --with-lokit-path="$BUILDDIR"/core/include --with-lo-path=/opt/lokit --with-poco-includes=$BUILDDIR/poco/include --with-poco-libs=$BUILDDIR/poco/lib $ONLINE_EXTRA_BUILD_OPTIONS) || exit 1
-( cd online && make -j 8) || exit 1
+( cd online && make -j $(nproc)) || exit 1
 
 # copy stuff
 ( cd online && DESTDIR="$INSTDIR" make install ) || exit 1
@@ -131,6 +131,7 @@ cp -a core/instdir "$INSTDIR"/opt/lokit
 if [ -z "$NO_DOCKER_IMAGE" ]; then
   cd "$SRCDIR"
   cp ../from-packages/scripts/start-collabora-online.sh .
+  cp ../from-packages/scripts/start-collabora-online.pl .
   docker build --no-cache -t $DOCKER_HUB_REPO:$DOCKER_HUB_TAG -f $HOST_OS . || exit 1
 else
   echo "Skipping docker image build"

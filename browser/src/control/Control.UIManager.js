@@ -42,11 +42,18 @@ L.Control.UIManager = L.Control.extend({
 
 	initializeBasicUI: function() {
 		var enableNotebookbar = window.userInterfaceMode === 'notebookbar';
+		var that = this;
 
 		if (window.mode.isMobile() || !enableNotebookbar) {
 			var menubar = L.control.menubar();
 			this.map.menubar = menubar;
 			this.map.addControl(menubar);
+		}
+
+		if (window.mode.isMobile()) {
+			$('#toolbar-mobile-back').on('click', function() {
+				that.enterReadonlyOrClose();
+			});
 		}
 
 		if (!window.mode.isMobile()) {
@@ -130,6 +137,8 @@ L.Control.UIManager = L.Control.extend({
 		var isDesktop = window.mode.isDesktop();
 		var enableNotebookbar = window.userInterfaceMode === 'notebookbar';
 
+		document.body.setAttribute('data-userInterfaceMode', window.userInterfaceMode);
+
 		if (window.mode.isMobile()) {
 			$('#mobile-edit-button').show();
 			this.map.addControl(L.control.mobileBottomBar(docType));
@@ -176,7 +185,9 @@ L.Control.UIManager = L.Control.extend({
 			if ((window.mode.isTablet() || window.mode.isDesktop()) && window.docPermission === 'edit') {
 				var showRuler = this.getSavedStateOrDefault('ShowRuler');
 				var interactiveRuler = this.map.isPermissionEdit();
-				L.control.ruler({position:'topleft', interactive:interactiveRuler, showruler: showRuler}).addTo(this.map);
+				var isRTL = document.documentElement.dir === 'rtl';
+				L.control.ruler({position: (isRTL ? 'topright' : 'topleft'), interactive:interactiveRuler, showruler: showRuler}).addTo(this.map);
+				this.map.fire('rulerchanged');
 			}
 
 			var showResolved = this.getSavedStateOrDefault('ShowResolved');
@@ -288,6 +299,8 @@ L.Control.UIManager = L.Control.extend({
 		if (uiMode.mode !== 'classic' && uiMode.mode !== 'notebookbar')
 			return;
 
+		document.body.setAttribute('data-userInterfaceMode', uiMode.mode);
+
 		switch (window.userInterfaceMode) {
 		case 'classic':
 			this.removeClassicUI();
@@ -377,7 +390,7 @@ L.Control.UIManager = L.Control.extend({
 		});
 
 		if (!found) {
-			console.error('Toolbar button with id "' + buttonId + '" not found.');
+			window.app.console.error('Toolbar button with id "' + buttonId + '" not found.');
 			return;
 		}
 	},
@@ -434,12 +447,14 @@ L.Control.UIManager = L.Control.extend({
 		$('.cool-ruler').show();
 		$('#map').addClass('hasruler');
 		this.setSavedState('ShowRuler', true);
+		this.map.fire('rulerchanged');
 	},
 
 	hideRuler: function() {
 		$('.cool-ruler').hide();
 		$('#map').removeClass('hasruler');
 		this.setSavedState('ShowRuler', false);
+		this.map.fire('rulerchanged');
 	},
 
 	toggleRuler: function() {
@@ -481,7 +496,7 @@ L.Control.UIManager = L.Control.extend({
 			return;
 
 		this.moveObjectVertically($('#formulabar'), -1);
-		$('#toolbar-up').css('display', 'none');
+		$('#toolbar-wrapper').css('display', 'none');
 
 		$('#document-container').addClass('tabs-collapsed');
 
@@ -493,7 +508,7 @@ L.Control.UIManager = L.Control.extend({
 			return;
 
 		this.moveObjectVertically($('#formulabar'), 1);
-		$('#toolbar-up').css('display', '');
+		$('#toolbar-wrapper').css('display', '');
 
 		$('#document-container').removeClass('tabs-collapsed');
 
@@ -510,6 +525,7 @@ L.Control.UIManager = L.Control.extend({
 		$('#document-container').css('bottom', this.documentBottom);
 		$('#toolbar-down').show();
 		this.setSavedState('ShowStatusbar', true);
+		this.map.fire('statusbarchanged');
 	},
 
 	hideStatusBar: function(firstStart) {
@@ -521,6 +537,7 @@ L.Control.UIManager = L.Control.extend({
 		$('#toolbar-down').hide();
 		if (!firstStart)
 			this.setSavedState('ShowStatusbar', false);
+		this.map.fire('statusbarchanged');
 	},
 
 	toggleStatusBar: function() {
@@ -652,7 +669,7 @@ L.Control.UIManager = L.Control.extend({
 		};
 
 		var builderCallback = function(objectType, eventType, object, data) {
-			console.debug('control: \'' + objectType + '\' id:\'' + object.id + '\' event: \'' + eventType + '\' state: \'' + data + '\'');
+			window.app.console.debug('control: \'' + objectType + '\' id:\'' + object.id + '\' event: \'' + eventType + '\' state: \'' + data + '\'');
 
 			if (object.id === 'button' && objectType === 'pushbutton' && eventType === 'click') {
 				if (callback)

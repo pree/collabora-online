@@ -5,13 +5,13 @@
     <string name="app_version_and_hash">Verze: %1$s
 \ngit-hash pro online: %2$s
 \ngit-hash pro core: %3$s</string>
-    <string name="app_description">$APP_NAME je moderní, snadno použitelný, open source kancelářský balík pro zpracování textu, tabulky, prezentace a další.</string>
+    <string name="app_description">$APP_NAME je moderní, snadno použitelný, open source kancelářský balík pro zpracování textu, tabulek, prezentací a dalšího.</string>
     <string name="app_vendor">Toto vydání bylo dodáno společností $VENDOR.</string>
     <string name="no_recent_items">Otevřete soubor klepnutím na ikonu složky v nástrojové liště.</string>
     <string name="no_items">Žádné položky</string>
     <string name="temp_file_saving_disabled">Soubor je pouze pro čtení, ukládání je zakázáno.</string>
     <string name="file_exists_warning">Soubor s tímto názvem již existuje a bude přepsán.</string>
-    <string name="file_creation_failed">Vytváření souboru selhalo</string>
+    <string name="file_creation_failed">Nepodařilo se vytvořit soubor</string>
     <string name="storage_permission_required">Je vyžadováno povolení přístupu k úložišti</string>
     <string name="failed_to_load_file">Nepodařilo se určit soubor, který se má načíst</string>
     <string name="list_view">Seznam</string>
@@ -100,7 +100,7 @@
     <string name="title_permission_required">Je vyžadováno povolení</string>
     <string name="reason_required_to_read_documents">Ke čtení dokumentů je vyžadováno oprávnění pro přístup k úložišti.</string>
     <string name="positive_ok">OK</string>
-    <string name="negative_im_sure">Jsem si jistý</string>
+    <string name="negative_im_sure">Jsem si jistý/á</string>
     <string name="negative_cancel">Zrušit</string>
     <!-- Save Alert dialog strings -->
     <string name="action_cancel">Zrušit</string>
@@ -110,7 +110,7 @@
     <string name="action_create">Vytvořit</string>
     <string name="action_overwrite">Přepsat</string>
     <!-- Loading SlideShow Dialog Strings -->
-    <string name="loading">Načítání...</string>
+    <string name="loading">Načítání…</string>
     <string name="share_document">Sdílet dokument</string>
     <!-- Presentation Mode Strings -->
     <!-- Calc Header Menu Strings -->

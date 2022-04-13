@@ -3,7 +3,7 @@
  * L.Map.Mouse is handling mouse interaction with the document
  */
 
-/* global app */
+/* global UNOModifier */
 
 L.Map.mergeOptions({
 	mouse: true
@@ -81,16 +81,24 @@ L.Map.Mouse = L.Handler.extend({
 		}
 
 		var modifier = 0;
-		var shift = e.originalEvent.shiftKey ? this._map.keyboard.keyModifier.shift : 0;
-		var ctrl = e.originalEvent.ctrlKey ? this._map.keyboard.keyModifier.ctrl : 0;
-		var alt = e.originalEvent.altKey ? this._map.keyboard.keyModifier.alt : 0;
-		var cmd = e.originalEvent.metaKey ? this._map.keyboard.keyModifier.ctrlMac : 0;
+		var shift = e.originalEvent.shiftKey ? UNOModifier.SHIFT : 0;
+		var ctrl = e.originalEvent.ctrlKey ? UNOModifier.CTRL : 0;
+		var alt = e.originalEvent.altKey ? UNOModifier.ALT : 0;
+		var cmd = e.originalEvent.metaKey ? UNOModifier.CTRLMAC : 0;
 		modifier = shift | ctrl | alt | cmd;
 
 		var buttons = 0;
 		buttons |= e.originalEvent.button === this.JSButtons.left ? this.LOButtons.left : 0;
 		buttons |= e.originalEvent.button === this.JSButtons.middle ? this.LOButtons.middle : 0;
 		buttons |= e.originalEvent.button === this.JSButtons.right ? this.LOButtons.right : 0;
+
+		// Turn ctrl-left-click into right-click for browsers on macOS
+		if (navigator.appVersion.indexOf('Mac') != -1 || navigator.userAgent.indexOf('Mac') != -1) {
+			if (modifier == UNOModifier.CTRL && buttons == this.LOButtons.left) {
+				modifier = 0;
+				buttons = this.LOButtons.right;
+			}
+		}
 
 		var mouseEnteringLeavingMap = this._map._mouseEnteringLeaving;
 
@@ -184,12 +192,8 @@ L.Map.Mouse = L.Handler.extend({
 				this._mouseEventsQueue = [];
 			}
 			if (!this._map.dragging.enabled()) {
-				mousePos = [e.containerPoint.x * app.dpiScale, e.containerPoint.y * app.dpiScale];
-				var docTopLeft = app.sectionContainer.getDocumentTopLeft();
-				mousePos = [mousePos[0] + docTopLeft[0], mousePos[1] + docTopLeft[1]];
-				mousePos = [Math.round(mousePos[0] * app.pixelsToTwips), Math.round(mousePos[1] * app.pixelsToTwips)];
-
-				docLayer._postMouseEvent('move', mousePos[0], mousePos[1], 1, buttons, modifier);
+				mousePos = docLayer._latLngToTwips(e.latlng);
+				docLayer._postMouseEvent('move', mousePos.x, mousePos.y, 1, buttons, modifier);
 
 				for (key in docLayer._selectionHandles) {
 					handle = docLayer._selectionHandles[key];

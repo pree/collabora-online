@@ -15,6 +15,7 @@
 #include "common/Log.hpp"
 #include "common/TraceEvent.hpp"
 #include "common/Unit.hpp"
+#include "common/Util.hpp"
 #include "Socket.hpp"
 #include <net/HttpRequest.hpp>
 
@@ -180,7 +181,7 @@ protected:
 
         if (socket->isClosed())
         {
-            LOG_DBG("Socket #" << socket->getFD() << " is closed. Cannot send Close Frame.");
+            LOG_DBG('#' << socket->getFD() << " is closed. Cannot send Close Frame.");
             return;
         }
 
@@ -437,7 +438,20 @@ private:
         if (fin)
         {
             // If is final fragment then process the accumulated message.
-            handleMessage(_wsPayload);
+
+            try
+            {
+                handleMessage(_wsPayload);
+            }
+            catch (const std::exception& exception)
+            {
+                LOG_ERR('#' << socket->getFD() << ": Error during handleMessage: " << exception.what());
+            }
+            catch (...)
+            {
+                LOG_ERR('#' << socket->getFD() << ": Error during handleMessage.");
+            }
+
             _inFragmentBlock = false;
         }
         else
@@ -447,7 +461,18 @@ private:
             return true;
         }
 #else
-        handleMessage(_wsPayload);
+        try
+        {
+            handleMessage(_wsPayload);
+        }
+        catch (const std::exception& exception)
+        {
+            LOG_ERR('#' << socket->getFD() << ": Error during handleMessage: " << exception.what());
+        }
+        catch (...)
+        {
+            LOG_ERR('#' << socket->getFD() << ": Error during handleMessage.");
+        }
 #endif
 
         _wsPayload.clear();
@@ -698,7 +723,7 @@ protected:
 
         if (socket->isClosed())
         {
-            LOG_DBG("Socket #" << socket->getFD() << " is closed. Cannot send WS frame.");
+            LOG_DBG('#' << socket->getFD() << " is closed. Cannot send WS frame.");
             return 0;
         }
 
@@ -708,6 +733,21 @@ protected:
         LOG_TRC("WebSocketHandler::sendFrame: Writing to #"
                 << socket->getFD() << ' ' << len << " bytes in addition to " << out.size()
                 << " bytes buffered.");
+
+#if ENABLE_DEBUG
+        if ((flags & 0xf) == (int)WSOpCode::Text) // utf8 validate
+        {
+            size_t offset = Util::isValidUtf8((unsigned char*)data, len);
+            if (offset < len)
+            {
+                std::string raw(data, len);
+                std::cerr << "attempting to send invalid UTF-8 message '" << raw << "' "
+                          << " error at offset " << len
+                          << "string: " << Util::dumpHex(raw) << "\n";
+                assert("invalid utf-8 - check Message::detectType()" && false);
+            }
+        }
+#endif
 
         // This would generate huge amounts of "instant" Trace Events. Is that what we want? If so,
         // it would be good to include in the args some identificating information about the sender
@@ -766,7 +806,7 @@ protected:
                 socket->writeOutgoingData();
                 if (!out.empty())
                 {
-                    LOG_WRN("Socket #"
+                    LOG_WRN('#'
                             << socket->getFD() << " is shutting down but " << out.size()
                             << " bytes couldn't be flushed and still remain in the output buffer.");
                 }

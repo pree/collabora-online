@@ -31,12 +31,16 @@ class Comment {
 	zIndex: number = L.CSections.Comment.zIndex;
 	interactable: boolean = true;
 	sectionProperties: any = {};
+	valid: boolean = true;
 
 	// Implemented by section container.
 	stopPropagating: () => void;
 
 	// Implemented by section container. Document objects only.
 	setPosition: (x: number, y: number) => void;
+
+	// Implemented by section container.
+	isCalcRTL: () => boolean;
 
 	map: any;
 	pendingInit: boolean = true;
@@ -115,14 +119,14 @@ class Comment {
 		if (!force && !this.convertRectanglesToCoreCoordinates())
 			return;
 
-		var button = L.DomUtil.create('div', '', this.sectionProperties.nodeModify);
+		var button = L.DomUtil.create('div', 'annotation-btns-container', this.sectionProperties.nodeModify);
 		L.DomEvent.on(this.sectionProperties.nodeModifyText, 'blur', this.onLostFocus, this);
 		L.DomEvent.on(this.sectionProperties.nodeReplyText, 'blur', this.onLostFocusReply, this);
-		this.createButton(button, 'annotation-cancel-' + this.sectionProperties.data.id, _('Cancel'), this.onCancelClick);
-		this.createButton(button, 'annotation-save-' + this.sectionProperties.data.id, _('Save'), this.onSaveComment);
+		this.createButton(button, 'annotation-cancel-' + this.sectionProperties.data.id, 'annotation-button button-secondary', _('Cancel'), this.onCancelClick);
+		this.createButton(button, 'annotation-save-' + this.sectionProperties.data.id, 'annotation-button button-primary',_('Save'), this.onSaveComment);
 		button = L.DomUtil.create('div', '', this.sectionProperties.nodeReply);
-		this.createButton(button, 'annotation-cancel-reply-' + this.sectionProperties.data.id, _('Cancel'), this.onCancelClick);
-		this.createButton(button, 'annotation-reply-' + this.sectionProperties.data.id, _('Reply'), this.onReplyClick);
+		this.createButton(button, 'annotation-cancel-reply-' + this.sectionProperties.data.id, 'annotation-button button-secondary', _('Cancel'), this.onCancelClick);
+		this.createButton(button, 'annotation-reply-' + this.sectionProperties.data.id, 'annotation-button button-primary', _('Reply'), this.onReplyClick);
 		L.DomEvent.disableScrollPropagation(this.sectionProperties.container);
 
 		this.sectionProperties.container.style.visibility = 'hidden';
@@ -193,7 +197,8 @@ class Comment {
 	}
 
 	private createContainerAndWrapper () {
-		this.sectionProperties.container = L.DomUtil.create('div', 'cool-annotation');
+		var isRTL = document.documentElement.dir === 'rtl';
+		this.sectionProperties.container = L.DomUtil.create('div', 'cool-annotation' + (isRTL ? ' rtl' : ''));
 		this.sectionProperties.container.id = 'comment-container-' + this.sectionProperties.data.id;
 
 		var mobileClass = (<any>window).mode.isMobile() ? ' wizard-comment-box': '';
@@ -284,8 +289,8 @@ class Comment {
 		}, this);
 	}
 
-	private createButton (container: any, id: any, value: any, handler: any) {
-		var button = L.DomUtil.create('input', 'annotation-button', container);
+	private createButton (container: any, id: any, cssClass: string, value: any, handler: any) {
+		var button = L.DomUtil.create('input', cssClass, container);
 		button.id = id;
 		button.type = 'button';
 		button.value = value;
@@ -298,7 +303,7 @@ class Comment {
 	}
 
 	public updateResolvedField (state: string) {
-		this.sectionProperties.resolvedTextElement.innerText = state === 'true' ? 'Resolved' : '';
+		this.sectionProperties.resolvedTextElement.innerText = state === 'true' ? _('Resolved') : '';
 	}
 
 	private updateContent () {
@@ -376,7 +381,12 @@ class Comment {
 		}
 		else if (this.sectionProperties.data.cellPos && this.sectionProperties.docLayer._docType === 'spreadsheet') {
 			var ratio: number = (app.tile.size.pixels[0] / app.tile.size.twips[0]);
-			this.size = [Math.round(this.sectionProperties.data.cellPos[2] * ratio), Math.round(this.sectionProperties.data.cellPos[3] * ratio)];
+			const sizeX = this.sectionProperties.data.cellPos[2];
+			this.size = [Math.round(sizeX * ratio), Math.round(this.sectionProperties.data.cellPos[3] * ratio)];
+			let startX = this.sectionProperties.data.cellPos[0];
+			if (this.isCalcRTL()) { // Mirroring is done in setPosition
+				startX += sizeX;  // but adjust for width of the cell.
+			}
 			this.setPosition(Math.round(this.sectionProperties.data.cellPos[0] * ratio), Math.round(this.sectionProperties.data.cellPos[1] * ratio));
 		}
 		else if (this.sectionProperties.docLayer._docType === 'presentation' || this.sectionProperties.docLayer._docType === 'drawing') {
@@ -600,7 +610,10 @@ class Comment {
 			var ratio: number = (app.tile.size.pixels[0] / app.tile.size.twips[0]);
 			var originalSize = [Math.round((this.sectionProperties.data.cellPos[2]) * ratio), Math.round((this.sectionProperties.data.cellPos[3]) * ratio)];
 
-			var pos: Array<number> = [Math.round((this.myTopLeft[0] + originalSize[0] - 3) / app.dpiScale), Math.round(this.myTopLeft[1] / app.dpiScale)];
+			const commentWidth = parseFloat(getComputedStyle(this.sectionProperties.container).width) * app.dpiScale;
+			const startX = this.isCalcRTL() ? this.myTopLeft[0] - commentWidth : this.myTopLeft[0] + originalSize[0] - 3;
+
+			var pos: Array<number> = [Math.round(startX / app.dpiScale), Math.round(this.myTopLeft[1] / app.dpiScale)];
 			this.sectionProperties.container.style.transform = 'translate3d(' + pos[0] + 'px, ' + pos[1] + 'px, 0px)';
 			this.sectionProperties.commentListSection.selectedComment = this;
 		}
@@ -684,7 +697,7 @@ class Comment {
 
 	public onLostFocus (e: any) {
 		if (!this.sectionProperties.isRemoved) {
-			$(this.sectionProperties.container).removeClass('annotation-active');
+			$(this.sectionProperties.container).removeClass('annotation-active reply-annotation-container modify-annotation-container');
 			if (this.sectionProperties.contentText.origText !== this.sectionProperties.nodeModifyText.value) {
 				this.onSaveComment(e);
 			}
@@ -722,6 +735,7 @@ class Comment {
 	}
 
 	public reply () {
+		this.sectionProperties.container.classList.add('reply-annotation-container');
 		this.sectionProperties.container.style.visibility = '';
 		this.sectionProperties.contentNode.style.display = '';
 		this.sectionProperties.nodeModify.style.display = 'none';
@@ -731,6 +745,7 @@ class Comment {
 
 	public edit () {
 		this.doPendingInitializationInView(true /* force */);
+		this.sectionProperties.container.classList.add('modify-annotation-container');
 		this.sectionProperties.nodeModify.style.display = '';
 		this.sectionProperties.nodeReply.style.display = 'none';
 		this.sectionProperties.container.style.visibility = '';
@@ -957,7 +972,7 @@ class Comment {
 		this.isCollapsed = true;
 
 		var isRootComment = this.sectionProperties.docLayer._docType !== 'text' || this.sectionProperties.data.parent === '0';
-		if (isRootComment)
+		if (isRootComment || this.sectionProperties.data.trackchange)
 			this.sectionProperties.collapsed.style.display = '';
 		else
 			this.sectionProperties.collapsed.style.display = 'none';

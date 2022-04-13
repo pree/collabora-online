@@ -4,12 +4,13 @@ var helper = require('../../common/helper');
 var mobileHelper = require('../../common/mobile_helper');
 
 describe('Change shape properties via mobile wizard.', function() {
-	const defaultStartPoint = [1953, 4875];
+	const defaultStartPoint = [1953, 4796];
 	const defaultBase = 5992;
 	const defaultAltitude = 5992;
 	const unitScale = 2540.37;
 
-	var testFileName = 'shape_properties.odt';
+	var origTestFileName = 'shape_properties.odt';
+	var testFileName;
 
 	class TriangleCoordinatesMatcher {
 		/**
@@ -62,7 +63,7 @@ describe('Change shape properties via mobile wizard.', function() {
 	}
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'writer');
+		testFileName = helper.beforeAll(origTestFileName, 'writer');
 
 		mobileHelper.enableEditingMobile();
 

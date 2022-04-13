@@ -27,7 +27,6 @@
 #include <common/Clipboard.hpp>
 #include <common/Session.hpp>
 #include <common/TraceEvent.hpp>
-#include <common/Unit.hpp>
 #include <common/Util.hpp>
 #if !MOBILEAPP
 #include <net/HttpHelper.hpp>
@@ -114,30 +113,16 @@ ClientSession::~ClientSession()
     GlobalSessionMap.erase(getId());
 }
 
-static const char *stateToString(ClientSession::SessionState s)
-{
-    switch (s)
-    {
-    case ClientSession::SessionState::DETACHED:        return "detached";
-    case ClientSession::SessionState::LOADING:         return "loading";
-    case ClientSession::SessionState::LIVE:            return "live";
-    case ClientSession::SessionState::WAIT_DISCONNECT: return "wait_disconnect";
-    }
-    return "invalid";
-}
-
 void ClientSession::setState(SessionState newState)
 {
-    LOG_TRC("ClientSession: transition from " << stateToString(_state) <<
-            " to " << stateToString(newState));
+    LOG_TRC(getName() << ": transition from " << name(_state) << " to " << name(newState));
 
     // we can get incoming messages while our disconnection is in transit.
     if (_state == SessionState::WAIT_DISCONNECT)
     {
         if (newState != SessionState::WAIT_DISCONNECT)
-            LOG_WRN("Unusual race - attempts to transition from " <<
-                    stateToString(_state) << " to " <<
-                    stateToString(newState));
+            LOG_WRN("Unusual race - attempts to transition from " << name(_state) << " to "
+                                                                  << name(newState));
         return;
     }
 
@@ -333,7 +318,7 @@ bool ClientSession::_handleInput(const char *buffer, int length)
 {
     LOG_TRC(getName() << ": handling incoming [" << getAbbreviatedMessage(buffer, length) << "].");
     const std::string firstLine = getFirstLine(buffer, length);
-    const StringVector tokens = Util::tokenize(firstLine.data(), firstLine.size());
+    const StringVector tokens = StringVector::tokenize(firstLine.data(), firstLine.size());
 
     std::shared_ptr<DocumentBroker> docBroker = getDocumentBroker();
     if (!docBroker || docBroker->isMarkedToDestroy())
@@ -397,7 +382,7 @@ bool ClientSession::_handleInput(const char *buffer, int length)
                     if (tokens.size() >= 5 && getTokenString(tokens, "args", args))
                         args = ",\"args\":" + args;
 
-                    uint64_t id;
+                    uint64_t id, tid;
                     uint64_t dur;
                     if (ph == "i")
                     {
@@ -412,7 +397,8 @@ bool ClientSession::_handleInput(const char *buffer, int length)
                                                           + ",\"tid\":1},\n");
                     }
                     else if ((ph == "S" || ph == "F") &&
-                        getTokenUInt64(tokens[4], "id", id))
+                             getTokenUInt64(tokens[4], "id", id),
+                             getTokenUInt64(tokens[5], "tid", tid))
                     {
                         COOLWSD::writeTraceEventRecording("{\"name\":\""
                                                           + name
@@ -424,8 +410,9 @@ bool ClientSession::_handleInput(const char *buffer, int length)
                                                           + std::to_string(ts + _performanceCounterEpoch)
                                                           + ",\"pid\":"
                                                           + std::to_string(getpid() + SYNTHETIC_COOL_PID_OFFSET)
-                                                          + ",\"tid\":1"
-                                                            ",\"id\":"
+                                                          + ",\"tid\":"
+                                                          + std::to_string(tid)
+                                                          + ",\"id\":"
                                                           + std::to_string(id)
                                                           + "},\n");
                     }
@@ -514,7 +501,7 @@ bool ClientSession::_handleInput(const char *buffer, int length)
         }
 
         // Send COOL version information
-        sendTextFrame("coolserver " + Util::getVersionJSON());
+        sendTextFrame("coolserver " + Util::getVersionJSON(EnableExperimental));
         // Send LOKit version information
         sendTextFrame("lokitversion " + COOLWSD::LOKitVersion);
 
@@ -676,7 +663,7 @@ bool ClientSession::_handleInput(const char *buffer, int length)
         // The savetostorage command is really only used to resolve save conflicts
         // and it seems to always have force=1. However, we should still honor the
         // contract and do as told, not as we expect the API to be used. Use force if provided.
-        docBroker->uploadToStorage(getId(), true, "" /* This is irrelevant when success is true*/, force);
+        docBroker->uploadToStorage(getId(), force);
     }
     else if (tokens.equals(0, "clientvisiblearea"))
     {
@@ -1220,7 +1207,7 @@ bool ClientSession::forwardToChild(const std::string& message,
 bool ClientSession::filterMessage(const std::string& message) const
 {
     bool allowed = true;
-    StringVector tokens(Util::tokenize(message, ' '));
+    StringVector tokens(StringVector::tokenize(message, ' '));
 
     // Set allowed flag to false depending on if particular WOPI properties are set
     if (tokens.equals(0, "downloadas"))
@@ -1332,7 +1319,7 @@ bool ClientSession::hasQueuedMessages() const
 
 void ClientSession::writeQueuedMessages(std::size_t capacity)
 {
-    LOG_TRC(getName() << " ClientSession: performing writes, up to " << capacity << " bytes.");
+    LOG_TRC(getName() << ": ClientSession: performing writes, up to " << capacity << " bytes.");
 
     std::shared_ptr<Message> item;
     std::size_t wrote = 0;
@@ -1355,17 +1342,17 @@ void ClientSession::writeQueuedMessages(std::size_t capacity)
             }
 
             wrote += size;
-            LOG_TRC(getName() << " ClientSession: wrote " << size << ", total " << wrote
+            LOG_TRC(getName() << ": ClientSession: wrote " << size << ", total " << wrote
                               << " bytes.");
         }
     }
     catch (const std::exception& ex)
     {
-        LOG_ERR(getName() << " Failed to send message " << (item ? item->abbr() : "<empty-item>")
+        LOG_ERR(getName() << ": Failed to send message " << (item ? item->abbr() : "<empty-item>")
                           << " to client: " << ex.what());
     }
 
-    LOG_TRC(getName() << " ClientSession: performed write, wrote " << wrote << " bytes.");
+    LOG_TRC(getName() << ": ClientSession: performed write, wrote " << wrote << " bytes.");
 }
 
 // NB. also see browser/src/map/Clipboard.js that does this in JS for stubs.
@@ -1425,29 +1412,36 @@ bool ClientSession::handleKitToClientMessage(const char* buffer, const int lengt
         const std::size_t index = stringMsg.find_first_of('{');
         if (index != std::string::npos)
         {
-            const std::string stringJSON = stringMsg.substr(index);
-            Poco::JSON::Parser parser;
-            const Poco::Dynamic::Var parsedJSON = parser.parse(stringJSON);
-            const auto& object = parsedJSON.extract<Poco::JSON::Object::Ptr>();
-            if (object->get("commandName").toString() == ".uno:Save")
+            try
             {
-                const bool success = object->get("success").toString() == "true";
-                std::string result;
-                if (object->has("result"))
+                const std::string stringJSON = stringMsg.substr(index);
+                Poco::JSON::Parser parser;
+                const Poco::Dynamic::Var parsedJSON = parser.parse(stringJSON);
+                const auto& object = parsedJSON.extract<Poco::JSON::Object::Ptr>();
+                if (object->get("commandName").toString() == ".uno:Save")
                 {
-                    const Poco::Dynamic::Var parsedResultJSON = object->get("result");
-                    const auto& resultObj = parsedResultJSON.extract<Poco::JSON::Object::Ptr>();
-                    if (resultObj->get("type").toString() == "string")
-                        result = resultObj->get("value").toString();
+                    const bool success = object->get("success").toString() == "true";
+                    std::string result;
+                    if (object->has("result"))
+                    {
+                        const Poco::Dynamic::Var parsedResultJSON = object->get("result");
+                        const auto& resultObj = parsedResultJSON.extract<Poco::JSON::Object::Ptr>();
+                        if (resultObj->get("type").toString() == "string")
+                            result = resultObj->get("value").toString();
+                    }
+
+                    // Save to Storage and log result.
+                    docBroker->handleSaveResponse(getId(), success, result);
+
+                    if (!isCloseFrame())
+                        forwardToClient(payload);
+
+                    return true;
                 }
-
-                // Save to Storage and log result.
-                docBroker->handleSaveResponse(getId(), success, result);
-
-                if (!isCloseFrame())
-                    forwardToClient(payload);
-
-                return true;
+            }
+            catch (const std::exception& exception)
+            {
+                LOG_ERR("unocommandresult parsing failure: " << exception.what());
             }
         }
         else
@@ -1636,7 +1630,7 @@ bool ClientSession::handleKitToClientMessage(const char* buffer, const int lengt
 #endif
     else if (tokens.size() == 2 && tokens.equals(0, "statechanged:"))
     {
-        StringVector stateTokens(Util::tokenize(tokens[1], '='));
+        StringVector stateTokens(StringVector::tokenize(tokens[1], '='));
         if (stateTokens.size() == 2 && stateTokens.equals(0, ".uno:ModifiedStatus"))
         {
             // Always update the modified flag in the DocBroker faithfully.
@@ -1691,8 +1685,9 @@ bool ClientSession::handleKitToClientMessage(const char* buffer, const int lengt
         // 'download' and/or providing our helpful / user page.
 
         // for now just for remote sockets.
-        LOG_TRC("Got clipboard content of size " << payload->size() << " to send to " <<
-                _clipSockets.size() << " sockets in state " << stateToString(_state));
+        LOG_TRC("Got clipboard content of size " << payload->size() << " to send to "
+                                                 << _clipSockets.size() << " sockets in state "
+                                                 << name(_state));
 
         postProcessCopyPayload(payload);
 
@@ -1810,16 +1805,23 @@ bool ClientSession::handleKitToClientMessage(const char* buffer, const int lengt
             const std::size_t index = stringMsg.find_first_of('{');
             if (index != std::string::npos)
             {
-                const std::string stringJSON = stringMsg.substr(index);
-                Poco::JSON::Parser parser;
-                const Poco::Dynamic::Var result = parser.parse(stringJSON);
-                const auto& object = result.extract<Poco::JSON::Object::Ptr>();
-                const std::string commandName = object->has("commandName") ? object->get("commandName").toString() : "";
-                if (commandName == ".uno:CharFontName" ||
-                    commandName == ".uno:StyleApply")
+                try
                 {
-                    // other commands should not be cached
-                    docBroker->tileCache().saveTextStream(TileCache::StreamType::CmdValues, stringMsg, commandName);
+                    const std::string stringJSON = stringMsg.substr(index);
+                    Poco::JSON::Parser parser;
+                    const Poco::Dynamic::Var result = parser.parse(stringJSON);
+                    const auto& object = result.extract<Poco::JSON::Object::Ptr>();
+                    const std::string commandName = object->has("commandName") ? object->get("commandName").toString() : "";
+                    if (commandName == ".uno:CharFontName" ||
+                        commandName == ".uno:StyleApply")
+                    {
+                        // other commands should not be cached
+                        docBroker->tileCache().saveTextStream(TileCache::StreamType::CmdValues, stringMsg, commandName);
+                    }
+                }
+                catch (const std::exception& exception)
+                {
+                    LOG_ERR("commandvalues parsing failure: " << exception.what());
                 }
             }
         }
@@ -1840,26 +1842,33 @@ bool ClientSession::handleKitToClientMessage(const char* buffer, const int lengt
             const std::size_t index = firstLine.find_first_of('{');
             const std::string stringJSON = firstLine.substr(index);
             Poco::JSON::Parser parser;
-            const Poco::Dynamic::Var result = parser.parse(stringJSON);
-            const auto& object = result.extract<Poco::JSON::Object::Ptr>();
-            const std::string rectangle = object->get("rectangle").toString();
-            StringVector rectangleTokens(Util::tokenize(rectangle, ','));
-            int x = 0, y = 0, w = 0, h = 0;
-            if (rectangleTokens.size() > 2 &&
-                stringToInteger(rectangleTokens[0], x) &&
-                stringToInteger(rectangleTokens[1], y))
+            try
             {
-                if (rectangleTokens.size() > 3)
+                const Poco::Dynamic::Var result = parser.parse(stringJSON);
+                const auto& object = result.extract<Poco::JSON::Object::Ptr>();
+                const std::string rectangle = object->get("rectangle").toString();
+                StringVector rectangleTokens(StringVector::tokenize(rectangle, ','));
+                int x = 0, y = 0, w = 0, h = 0;
+                if (rectangleTokens.size() > 2 &&
+                    stringToInteger(rectangleTokens[0], x) &&
+                    stringToInteger(rectangleTokens[1], y))
                 {
-                    stringToInteger(rectangleTokens[2], w);
-                    stringToInteger(rectangleTokens[3], h);
-                }
+                    if (rectangleTokens.size() > 3)
+                    {
+                        stringToInteger(rectangleTokens[2], w);
+                        stringToInteger(rectangleTokens[3], h);
+                    }
 
-                docBroker->invalidateCursor(x, y, w, h);
+                    docBroker->invalidateCursor(x, y, w, h);
+                }
+                else
+                {
+                    LOG_ERR("Unable to parse " << firstLine);
+                }
             }
-            else
+            catch (const std::exception& exception)
             {
-                LOG_ERR("Unable to parse " << firstLine);
+                LOG_ERR("invalidatecursor parsing failure: " << exception.what());
             }
         }
         else if (tokens.equals(0, "renderfont:"))
@@ -1914,12 +1923,13 @@ void ClientSession::enqueueSendMessage(const std::shared_ptr<Message>& data)
         auto iter = _oldWireIds.find(tile->generateID());
         if(iter != _oldWireIds.end() && tile->getWireId() != 0 && tile->getWireId() == iter->second)
         {
-            LOG_INF("WSD filters out a tile with the same wireID: " <<  tile->serialize("tile:"));
+            LOG_INF(getName() << ": WSD filters out a tile with the same wireID: "
+                              << tile->serialize("tile:"));
             return;
         }
     }
 
-    LOG_TRC(getName() << " enqueueing client message " << data->id());
+    LOG_TRC(getName() << ": Enqueueing client message " << data->id());
     std::size_t sizeBefore = _senderQueue.size();
     std::size_t newSize = _senderQueue.enqueue(data);
 
@@ -1985,7 +1995,8 @@ Util::Rectangle ClientSession::getNormalizedVisibleArea() const
 
 void ClientSession::onDisconnect()
 {
-    LOG_INF(getName() << " Disconnected, current number of connections: " << COOLWSD::NumConnections);
+    LOG_INF(getName() << ": Disconnected, current global number of connections (inclusive): "
+                      << COOLWSD::NumConnections);
 
     const std::shared_ptr<DocumentBroker> docBroker = getDocumentBroker();
     LOG_CHECK_RET(docBroker && "Null DocumentBroker instance", );
@@ -1998,28 +2009,28 @@ void ClientSession::onDisconnect()
     try
     {
         // Connection terminated. Destroy session.
-        LOG_DBG(getName() << " on docKey [" << docKey << "] terminated. Cleaning up.");
+        LOG_DBG(getName() << ": on docKey [" << docKey << "] terminated. Cleaning up.");
 
         docBroker->removeSession(getId());
     }
     catch (const UnauthorizedRequestException& exc)
     {
-        LOG_ERR("Error in client request handler: " << exc.toString());
+        LOG_ERR(getName() << ": Error in client request handler: " << exc.toString());
         const std::string status = "error: cmd=internal kind=unauthorized";
-        LOG_TRC("Sending to Client [" << status << "].");
+        LOG_TRC(getName() << ": Sending to Client [" << status << "].");
         sendMessage(status);
         // We are disconnecting, no need to close the socket here.
     }
     catch (const std::exception& exc)
     {
-        LOG_ERR("Error in client request handler: " << exc.what());
+        LOG_ERR(getName() << ": Error in client request handler: " << exc.what());
     }
 
     try
     {
         if (isCloseFrame())
         {
-            LOG_TRC("Normal close handshake.");
+            LOG_TRC(getName() << ": Normal close handshake.");
             // Client initiated close handshake
             // respond with close frame
             shutdownNormal();
@@ -2027,13 +2038,13 @@ void ClientSession::onDisconnect()
         else if (!SigUtil::getShutdownRequestFlag())
         {
             // something wrong, with internal exceptions
-            LOG_TRC("Abnormal close handshake.");
+            LOG_TRC(getName() << ": Abnormal close handshake.");
             closeFrame();
             shutdownGoingAway();
         }
         else
         {
-            LOG_TRC("Server recycling.");
+            LOG_TRC(getName() << ": Server recycling.");
             closeFrame();
             shutdownGoingAway();
         }
@@ -2050,7 +2061,7 @@ void ClientSession::dumpState(std::ostream& os)
 
     os << "\t\tisReadOnly: " << isReadOnly()
        << "\n\t\tisDocumentOwner: " << isDocumentOwner()
-       << "\n\t\tstate: " << stateToString(_state)
+       << "\n\t\tstate: " << name(_state)
        << "\n\t\tkeyEvents: " << _keyEvents
 //       << "\n\t\tvisibleArea: " << _clientVisibleArea
        << "\n\t\tclientSelectedPart: " << _clientSelectedPart

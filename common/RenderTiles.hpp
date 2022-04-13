@@ -170,7 +170,7 @@ public:
             if (it != _cache.end())
             {
                 ++_cacheHits;
-                LOG_DBG("PNG cache with hash " << hash << " hit.");
+                LOG_TRC("PNG cache with hash " << hash << " hit.");
                 output.insert(output.end(),
                               it->second.getData()->begin(),
                               it->second.getData()->end());
@@ -181,7 +181,7 @@ public:
             }
         }
 
-        LOG_DBG("PNG cache with hash " << hash << " missed.");
+        LOG_TRC("PNG cache with hash " << hash << " missed.");
         return false;
     }
 
@@ -400,14 +400,14 @@ namespace RenderTiles
                   const std::function<void (const char *buffer, size_t length)>& outputMessage,
                   unsigned mobileAppDocId)
     {
-        auto& tiles = tileCombined.getTiles();
+        const auto& tiles = tileCombined.getTiles();
 
         // Calculate the area we cover
         Util::Rectangle renderArea;
         std::vector<Util::Rectangle> tileRecs;
         tileRecs.reserve(tiles.size());
 
-        for (auto& tile : tiles)
+        for (const auto& tile : tiles)
         {
             Util::Rectangle rectangle(tile.getTilePosX(), tile.getTilePosY(),
                                       tileCombined.getTileWidth(), tileCombined.getTileHeight());
@@ -473,7 +473,7 @@ namespace RenderTiles
 
         std::mutex pngMutex;
 
-        for (Util::Rectangle& tileRect : tileRecs)
+        for (const Util::Rectangle& tileRect : tileRecs)
         {
             const size_t positionX = (tileRect.getLeft() - renderArea.getLeft()) / tileCombined.getTileWidth();
             const size_t positionY = (tileRect.getTop() - renderArea.getTop()) / tileCombined.getTileHeight();
@@ -511,10 +511,10 @@ namespace RenderTiles
             }
             else
             {
-                LOG_DBG("PNG cache with hash " << hash << " missed.");
+                LOG_TRC("PNG cache with hash " << hash << " missed.");
 
                 // Don't re-compress the same thing multiple times.
-                for (auto id : renderingIds)
+                for (const auto& id : renderingIds)
                 {
                     if (wireId == id)
                     {
@@ -538,7 +538,7 @@ namespace RenderTiles
                         PngCache::CacheData data(new std::vector< char >() );
                         data->reserve(pixmapWidth * pixmapHeight * 1);
 
-                        LOG_DBG("Encode a new png for tile #" << tileIndex);
+                        LOG_TRC("Encode a new png for tile #" << tileIndex);
                         if (!Png::encodeSubBufferToPNG(pixmap.data(), offsetX, offsetY, pixelWidth, pixelHeight,
                                                        pixmapWidth, pixmapHeight, *data, mode))
                         {
@@ -548,7 +548,7 @@ namespace RenderTiles
                             return;
                         }
 
-                        LOG_DBG("Tile " << tileIndex << " is " << data->size() << " bytes.");
+                        LOG_TRC("Tile " << tileIndex << " is " << data->size() << " bytes.");
                         std::unique_lock<std::mutex> pngLock(pngMutex);
                         output.insert(output.end(), data->begin(), data->end());
                         pngCache.addToCache(data, wireId, hash);

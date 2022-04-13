@@ -20,11 +20,11 @@ function enableEditingMobile() {
 		.then(function(button) {
 			if (button.css('display') !== 'none') {
 
-				cy.get('#tb_actionbar_item_closemobile .editmode')
-					.should('not.exist');
+				cy.get('#toolbar-mobile-back')
+					.should('not.have.class', 'editmode-on');
 
-				cy.get('#tb_actionbar_item_closemobile .closemobile')
-					.should('be.visible');
+				cy.get('#toolbar-mobile-back')
+					.should('have.class', 'editmode-off');
 
 				cy.get('#mobile-edit-button')
 					.click();
@@ -32,11 +32,11 @@ function enableEditingMobile() {
 		});
 
 
-	cy.get('#tb_actionbar_item_closemobile .editmode')
-		.should('be.visible');
+	cy.get('#toolbar-mobile-back')
+		.should('have.class', 'editmode-on');
 
-	cy.get('#tb_actionbar_item_closemobile .closemobile')
-		.should('not.exist');
+	cy.get('#toolbar-mobile-back')
+		.should('not.have.class', 'editmode-off');
 
 	// Wait until all UI update is finished.
 	cy.get('#toolbar-down')
@@ -127,6 +127,7 @@ function closeHamburgerMenu() {
 function openMobileWizard() {
 	cy.log('Opening mobile wizard - start.');
 
+	helper.waitUntilIdle('#tb_actionbar_item_mobile_wizard');
 	// Open mobile wizard
 	cy.get('#tb_actionbar_item_mobile_wizard')
 		.should('not.have.class', 'disabled')
@@ -172,7 +173,7 @@ function executeCopyFromContextMenu(XPos, YPos) {
 		.click();
 
 	// Close warning about clipboard operations
-	cy.get('.vex-dialog-button-primary.vex-dialog-button.vex-first')
+	cy.get('.vex-dialog-button-primary.vex-dialog-button')
 		.click();
 
 	// Wait until it's closed
@@ -270,16 +271,12 @@ function selectHamburgerMenuItem(menuItems) {
 			.click();
 
 		if (Cypress.env('INTEGRATION') !== 'nextcloud') {
-			if (i === menuItems.length - 1) {
-				cy.contains('.menu-entry-with-icon', menuItems[i])
-					.should('not.exist');
-			} else {
-				cy.contains('.menu-entry-with-icon', menuItems[i])
-					.should('not.be.visible');
+			if (Cypress.$('.menu-entry-with-icon').length) {
+				cy.get('.menu-entry-with-icon')
+					.should('not.have.text', menuItems[i]);
 			}
 		}
 	}
-
 	cy.log('Selecting hamburger menu item - end.');
 }
 

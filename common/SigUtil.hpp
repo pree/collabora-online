@@ -21,12 +21,12 @@ namespace SigUtil
     /// Get the flag to stop pump loops forcefully.
     /// If this returns true, getShutdownRequestFlag() must also return true.
     bool getTerminationFlag();
-    /// Set the flag to stop pump loops forcefully.
+    /// Set the flag to stop pump loops forcefully and request shutting down.
     void setTerminationFlag();
 #if MOBILEAPP
-    /// Reset the flag to stop pump loops forcefully.
+    /// Reset the flags to stop pump loops forcefully.
     /// Only necessary in Mobile.
-    void resetTerminationFlag();
+    void resetTerminationFlags();
 #endif
 #else
     // In the mobile apps we have no need to shut down the app.
@@ -49,11 +49,13 @@ namespace SigUtil
 
     void checkDumpGlobalState(GlobalDumpStateFn dumpState);
 
-    typedef void (*UnoCommandsDumperFn)(void);
+    /// Add a message to a round-robin buffer to be dumped on fatal signal
+    void addActivity(const std::string &message);
 
-    extern UnoCommandsDumperFn dumpUnoCommandsInfoFn;
-
-    void registerUnoCommandInfoHandler(UnoCommandsDumperFn dumpUnoCommandsInfo);
+    /// Called to flag that we are running in unattended mode, not interactive.
+    /// In unattended mode we know there is no one to attach a debugger on
+    /// faulting, so we do not wait unnecessarily. Otherwise, we wait for 60s.
+    void setUnattended();
 
 #if !MOBILEAPP
     /// Wait for the signal handler, if any,

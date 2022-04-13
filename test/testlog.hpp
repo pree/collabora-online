@@ -50,8 +50,8 @@ inline void tstLog(const std::ostringstream& stream) { writeTestLog(stream.str()
     do                                                                                             \
     {                                                                                              \
         char b_[1024];                                                                             \
-        OSS << Log::prefix<sizeof(b_) - 1>(b_, "TST") << NAME << " (+"                             \
-            << helpers::timeSinceTestStartMs() << "): " << X;                                      \
+        OSS << Log::prefix<sizeof(b_) - 1>(b_, "TST") << NAME << " [" << __func__ << "] (+"        \
+            << helpers::timeSinceTestStartMs() << "): " << std::boolalpha << X;                    \
         if (FLUSH)                                                                                 \
             tstLog(OSS);                                                                           \
     } while (false)
@@ -74,7 +74,7 @@ inline void tstLog(const std::ostringstream& stream) { writeTestLog(stream.str()
 #define TST_LOG_END_X(OSS)                                                                         \
     do                                                                                             \
     {                                                                                              \
-        OSS << "| " __FILE__ ":" << __LINE__ << '\n';                                              \
+        OSS << "| " __FILE__ ":" STRING(__LINE__) "\n";                                            \
         tstLog(OSS);                                                                               \
     } while (false)
 
@@ -97,6 +97,6 @@ inline void tstLog(const std::ostringstream& stream) { writeTestLog(stream.str()
 #define TST_LOG(X) TST_LOG_NAME(testname, X)
 
 /// Used by the "new-style" tests. FIXME: Unify.
-#define LOG_TST(X) TST_LOG_NAME(getTestname(), X)
+#define LOG_TST(X) TST_LOG(X)
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -210,10 +210,6 @@ public:
 
 #endif
 
-// Forward declarations for classes defined in COOLWSD.cpp.
-class PrisonPoll;
-class COOLWSDServer;
-
 /// The Server class which is responsible for all
 /// external interactions.
 class COOLWSD : public Poco::Util::ServerApplication
@@ -230,6 +226,7 @@ public:
     static bool NoCapsForKit;
     static bool NoSeccomp;
     static bool AdminEnabled;
+    static bool UnattendedRun; //< True when run from an unattended test, not interactive.
 #if ENABLE_DEBUG
     static bool SingleKit;
 #endif
@@ -248,7 +245,6 @@ public:
     static std::string ChildRoot;
     static std::string ServerName;
     static std::string FileServerRoot;
-    static std::string WelcomeFilesRoot; ///< From where we should serve the release notes (or otherwise useful content) that is shown on first install or version update.
     static std::string ServiceRoot; ///< There are installations that need prefixing every page with some path.
     static std::string LOKitVersion;
     static bool EnableTraceEventLogging;

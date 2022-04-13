@@ -6,8 +6,11 @@
  */
 
 #include <config.h>
+#include <stdexcept>
 #include "COOLWSD.hpp"
 #include "ProofKey.hpp"
+#include "CommandControl.hpp"
+#include "HostUtil.hpp"
 
 /* Default host used in the start test URI */
 #define COOLWSD_TEST_HOST "localhost"
@@ -72,6 +75,10 @@
 #include <Poco/Net/PartHandler.h>
 #include <Poco/Net/SocketAddress.h>
 #include <net/HttpHelper.hpp>
+#include <Poco/Net/AcceptCertificateHandler.h>
+#include <Poco/Net/Context.h>
+#include <Poco/Net/KeyConsoleHandler.h>
+#include <Poco/Net/SSLManager.h>
 
 using Poco::Net::HTMLForm;
 using Poco::Net::PartHandler;
@@ -116,6 +123,7 @@ using Poco::Net::PartHandler;
 #include "DocumentBroker.hpp"
 #include "Exceptions.hpp"
 #include "FileServer.hpp"
+#include <common/JsonUtil.hpp>
 #include <common/FileUtil.hpp>
 #include <common/JailUtil.hpp>
 #if defined KIT_IN_PROCESS || MOBILEAPP
@@ -168,6 +176,7 @@ using Poco::StreamCopier;
 using Poco::URI;
 using Poco::Util::Application;
 using Poco::Util::HelpFormatter;
+using Poco::Util::LayeredConfiguration;
 using Poco::Util::MissingOptionException;
 using Poco::Util::Option;
 using Poco::Util::OptionSet;
@@ -512,6 +521,9 @@ static size_t addNewChild(const std::shared_ptr<ChildProcess>& child)
     if (OutstandingForks < 0)
         ++OutstandingForks;
 
+    // Reset the child-spawn timeout to the default, now that we're set.
+    ChildSpawnTimeoutMs = CHILD_TIMEOUT_MS;
+
     LOG_TRC("Adding one child to NewChildren");
     NewChildren.emplace_back(child);
     const size_t count = NewChildren.size();
@@ -552,10 +564,8 @@ std::shared_ptr<ChildProcess> getNewChild_Blocks(unsigned mobileAppDocId)
         return nullptr;
     }
 
-    // With valgrind we need extended time to spawn kits.
-    const auto timeoutMs = std::chrono::milliseconds(ChildSpawnTimeoutMs / 2);
-    LOG_TRC("Waiting for a new child for a max of " << timeoutMs);
-    const auto timeout = std::chrono::milliseconds(timeoutMs);
+    const auto timeout = std::chrono::milliseconds(ChildSpawnTimeoutMs / 2);
+    LOG_TRC("Waiting for a new child for a max of " << timeout);
 #else
     const auto timeout = std::chrono::hours(100);
 
@@ -843,6 +853,7 @@ std::shared_ptr<ForKitProcess> COOLWSD::ForKitProc;
 bool COOLWSD::NoCapsForKit = false;
 bool COOLWSD::NoSeccomp = false;
 bool COOLWSD::AdminEnabled = true;
+bool COOLWSD::UnattendedRun = false;
 #if ENABLE_DEBUG
 bool COOLWSD::SingleKit = false;
 #endif
@@ -856,7 +867,6 @@ std::string COOLWSD::LoTemplate = LO_PATH;
 std::string COOLWSD::ChildRoot;
 std::string COOLWSD::ServerName;
 std::string COOLWSD::FileServerRoot;
-std::string COOLWSD::WelcomeFilesRoot;
 std::string COOLWSD::ServiceRoot;
 std::string COOLWSD::LOKitVersion;
 std::string COOLWSD::ConfigFile = COOLWSD_CONFIGDIR "/coolwsd.xml";
@@ -866,7 +876,7 @@ FILE *COOLWSD::TraceEventFile = NULL;
 std::string COOLWSD::LogLevel = "trace";
 std::string COOLWSD::MostVerboseLogLevelSettableFromClient = "notice";
 std::string COOLWSD::LeastVerboseLogLevelSettableFromClient = "fatal";
-std::string COOLWSD::UserInterface = "classic";
+std::string COOLWSD::UserInterface = "default";
 bool COOLWSD::AnonymizeUserData = false;
 bool COOLWSD::CheckCoolUser = true;
 bool COOLWSD::CleanupOnly = false; //< If we should cleanup and exit.
@@ -950,6 +960,7 @@ private:
 static std::unique_ptr<PrisonPoll> PrisonerPoll;
 
 /// The Web Server instance with the accept socket poll thread.
+class COOLWSDServer;
 static std::unique_ptr<COOLWSDServer> Server;
 
 /// Helper class to hold default configuration entries.
@@ -971,7 +982,7 @@ void ForKitProcWSHandler::handleMessage(const std::vector<char> &data)
 {
     LOG_TRC("ForKitProcWSHandler: handling incoming [" << COOLProtocol::getAbbreviatedMessage(&data[0], data.size()) << "].");
     const std::string firstLine = COOLProtocol::getFirstLine(&data[0], data.size());
-    const StringVector tokens = Util::tokenize(firstLine.data(), firstLine.size());
+    const StringVector tokens = StringVector::tokenize(firstLine.data(), firstLine.size());
 
     if (tokens.equals(0, "segfaultcount"))
     {
@@ -1002,6 +1013,355 @@ COOLWSD::~COOLWSD()
 {
 }
 
+#if !MOBILEAPP
+
+// A custom socket poll to fetch remote config every 60 seconds
+// if config changes it applies the new config using LayeredConfiguration
+class RemoteJSONPoll : public SocketPoll
+{
+public:
+    RemoteJSONPoll(LayeredConfiguration& config, Poco::URI uri, const std::string& name, const std::string& kind)
+        : SocketPoll(name)
+        , conf(config)
+        , remoteServerURI(uri)
+        , expectedKind(kind)
+    { }
+
+    virtual ~RemoteJSONPoll() { }
+
+    virtual void handleJSON(Poco::JSON::Object::Ptr json) = 0;
+
+    void start()
+    {
+        if (remoteServerURI.empty())
+        {
+            LOG_INF("Remote config url is not specified in coolwsd.xml");
+            return; // no remote config server setup.
+        }
+#if !ENABLE_DEBUG
+        if (Util::iequal(remoteServerURI.getScheme(),"http"))
+        {
+            LOG_ERR("Remote config url should only use HTTPS protocol: " << remoteServerURI.toString());
+            return;
+        }
+#endif
+
+        startThread();
+    }
+
+    void pollingThread()
+    {
+        while (!isStop() && !SigUtil::getTerminationFlag() && !SigUtil::getShutdownRequestFlag())
+        {
+            try
+            {
+                std::shared_ptr<http::Session> httpSession(
+                    StorageBase::getHttpSession(remoteServerURI));
+                http::Request request(remoteServerURI.getPathAndQuery());
+
+                //we use ETag header to check whether JSON is modified or not
+                if (!eTagValue.empty())
+                {
+                    request.set("If-None-Match", eTagValue);
+                }
+
+                const std::shared_ptr<const http::Response> httpResponse =
+                    httpSession->syncRequest(request);
+
+                unsigned int statusCode = httpResponse->statusLine().statusCode();
+
+                if (statusCode == Poco::Net::HTTPResponse::HTTP_OK)
+                {
+                    eTagValue = httpResponse->get("ETag");
+
+                    std::string body = httpResponse->getBody();
+
+                    Poco::JSON::Object::Ptr remoteJson;
+                    if (JsonUtil::parseJSON(body, remoteJson))
+                    {
+                        std::string kind;
+                        JsonUtil::findJSONValue(remoteJson, "kind", kind);
+                        if (kind == expectedKind)
+                        {
+                            handleJSON(remoteJson);
+                        }
+                        else
+                        {
+                            LOG_ERR("Make sure that remote config JSON contains kind property with "
+                                    "value 'configuration'");
+                        }
+                    }
+                    else
+                    {
+                        LOG_ERR("Could not parse the remote config JSON");
+                    }
+                }
+                else if (statusCode == Poco::Net::HTTPResponse::HTTP_NOT_MODIFIED)
+                {
+                    LOG_WRN("Remote config server has response status code: " +
+                            std::to_string(statusCode) + ", JSON has not been changed");
+                }
+                else
+                {
+                    LOG_ERR("Remote config server has response status code: " +
+                            std::to_string(statusCode));
+                }
+            }
+            catch (...)
+            {
+                LOG_ERR("Failed to fetch remote config JSON, Please check JSON format");
+            }
+            poll(std::chrono::seconds(60));
+        }
+    }
+
+protected:
+    LayeredConfiguration& conf;
+    Poco::URI remoteServerURI;
+    std::string expectedKind;
+    std::string eTagValue;
+};
+
+class RemoteConfigPoll : public RemoteJSONPoll
+{
+public:
+    RemoteConfigPoll(LayeredConfiguration& config) :
+        RemoteJSONPoll(config, Poco::URI(config.getString("remote_config.remote_url")), "remoteconfig_poll", "configuration")
+    {
+    }
+
+    virtual ~RemoteConfigPoll() { }
+
+    void handleJSON(Poco::JSON::Object::Ptr remoteJson) override
+    {
+        constexpr int PRIO_JSON = -200; // highest priority
+
+        std::map<std::string, std::string> newAppConfig;
+
+        fetchWopiHostPatterns(newAppConfig, remoteJson);
+
+        fetchAliasGroups(newAppConfig, remoteJson);
+
+#ifdef ENABLE_FEATURE_LOCK
+        fetchLockedHostPatterns(newAppConfig, remoteJson);
+#endif
+
+        AutoPtr<AppConfigMap> newConfig(new AppConfigMap(newAppConfig));
+        conf.addWriteable(newConfig, PRIO_JSON);
+
+        HostUtil::parseWopiHost(conf);
+
+#ifdef ENABLE_FEATURE_LOCK
+        CommandControl::LockManager::parseLockedHost(conf);
+#endif
+
+        HostUtil::parseAliases(conf);
+    }
+
+    void fetchWopiHostPatterns(std::map<std::string, std::string>& newAppConfig,
+                               Poco::JSON::Object::Ptr remoteJson)
+    {
+        //wopi host patterns
+        if (!conf.getBool("storage.wopi[@allow]", false))
+        {
+            LOG_INF("WOPI host feature is disabled in configuration");
+            return;
+        }
+        try
+        {
+            Poco::JSON::Array::Ptr wopiHostPatterns =
+                remoteJson->getObject("storage")->getObject("wopi")->getArray("hosts");
+
+            if (wopiHostPatterns->size() == 0)
+            {
+                LOG_WRN("Not overwriting any wopi host pattern because JSON contains empty array");
+                return;
+            }
+
+            std::size_t i;
+            for (i = 0; i < wopiHostPatterns->size(); i++)
+            {
+                std::string host;
+
+                Poco::JSON::Object::Ptr subObject = wopiHostPatterns->getObject(i);
+                JsonUtil::findJSONValue(subObject, "host", host);
+                Poco::Dynamic::Var allow = subObject->get("allow");
+
+                const std::string path = "storage.wopi.host[" + std::to_string(i) + ']';
+                newAppConfig.insert(std::make_pair(path, host));
+                newAppConfig.insert(std::make_pair(path + "[@allow]", booleanToString(allow)));
+            }
+
+            //if number of wopi host patterns defined in coolwsd.xml are greater than number of host
+            //fetched from json, overwrite the remaining host from config file to empty strings and
+            //set allow to false
+            for (;; ++i)
+            {
+                const std::string path = "storage.wopi.host[" + std::to_string(i) + "]";
+                if (!conf.has(path))
+                {
+                    break;
+                }
+                newAppConfig.insert(std::make_pair(path, ""));
+                newAppConfig.insert(std::make_pair(path + "[@allow]", "false"));
+            }
+        }
+        catch (std::exception& exc)
+        {
+            LOG_ERR("Failed to fetch wopi host patterns, please check JSON format: " << exc.what());
+        }
+    }
+
+    void fetchLockedHostPatterns(std::map<std::string, std::string>& newAppConfig,
+                                 Poco::JSON::Object::Ptr remoteJson)
+    {
+        if (!conf.getBool("feature_lock.locked_hosts[@allow]", false))
+        {
+            LOG_INF("locked_hosts feature is disabled from configuration");
+            return;
+        }
+
+        try
+        {
+            Poco::JSON::Array::Ptr lockedHostPatterns =
+                remoteJson->getObject("feature_locking")->getObject("locked_hosts")->getArray("hosts");
+
+            if (lockedHostPatterns->size() == 0)
+            {
+                LOG_WRN("Not overwriting any locked wopi host pattern because JSON contains empty "
+                        "array");
+                return;
+            }
+
+            std::size_t i;
+            for (i = 0; i < lockedHostPatterns->size(); i++)
+            {
+                std::string host;
+
+                Poco::JSON::Object::Ptr subObject = lockedHostPatterns->getObject(i);
+                JsonUtil::findJSONValue(subObject, "host", host);
+                Poco::Dynamic::Var readOnly = subObject->get("read_only");
+                Poco::Dynamic::Var disabledCommands = subObject->get("disabled_commands");
+
+                const std::string path =
+                    "feature_lock.locked_hosts.host[" + std::to_string(i) + "]";
+                newAppConfig.insert(std::make_pair(path, host));
+                newAppConfig.insert(std::make_pair(path + "[@read_only]", booleanToString(readOnly)));
+                newAppConfig.insert(std::make_pair(path + "[@disabled_commands]",
+                                                   booleanToString(disabledCommands)));
+            }
+
+            //if number of locked wopi host patterns defined in coolwsd.xml are greater than number of host
+            //fetched from json, overwrite the remaining host from config file to empty strings and
+            //set read_only and disabled_commands to false
+            for (;; ++i)
+            {
+                const std::string path =
+                    "feature_lock.locked_hosts.host[" + std::to_string(i) + "]";
+                if (!conf.has(path))
+                {
+                    break;
+                }
+                newAppConfig.insert(std::make_pair(path, ""));
+                newAppConfig.insert(std::make_pair(path + "[@read_only]", "false"));
+                newAppConfig.insert(std::make_pair(path + "[@disabled_commands]", "false"));
+            }
+        }
+        catch (const std::exception& exc)
+        {
+            LOG_ERR("Failed to fetch locked_hosts, please check JSON format: " << exc.what());
+        }
+    }
+
+    void fetchAliasGroups(std::map<std::string, std::string>& newAppConfig,
+                          Poco::JSON::Object::Ptr remoteJson)
+    {
+        try
+        {
+            Poco::JSON::Object::Ptr aliasGroups =
+                remoteJson->getObject("storage")->getObject("wopi")->getObject("alias_groups");
+
+            Poco::JSON::Array::Ptr groups = aliasGroups->getArray("groups");
+
+            if (groups->size() == 0)
+            {
+                LOG_WRN("Not overwriting any alias groups because alias_group array is empty");
+                return;
+            }
+
+            std::string mode = "first";
+            JsonUtil::findJSONValue(aliasGroups, "mode", mode);
+            newAppConfig.insert(std::make_pair("storage.wopi.alias_groups[@mode]", mode));
+
+            std::size_t i;
+            for (i = 0; i < groups->size(); i++)
+            {
+                Poco::JSON::Object::Ptr group = groups->getObject(i);
+                std::string host;
+                JsonUtil::findJSONValue(group, "host", host);
+                Poco::Dynamic::Var allow = group->get("allow");
+                const std::string path =
+                    "storage.wopi.alias_groups.group[" + std::to_string(i) + ']';
+
+                newAppConfig.insert(std::make_pair(path + ".host", host));
+                newAppConfig.insert(std::make_pair(path + ".host[@allow]", booleanToString(allow)));
+
+                Poco::JSON::Array::Ptr aliases = group->getArray("aliases");
+
+                auto it = aliases->begin();
+
+                size_t j;
+                for (j = 0; j < aliases->size(); j++)
+                {
+                    const std::string aliasPath = path + ".alias[" + std::to_string(j) + ']';
+                    newAppConfig.insert(std::make_pair(aliasPath, it->toString()));
+                    it++;
+                }
+                for (;; j++)
+                {
+                    const std::string aliasPath = path + ".alias[" + std::to_string(j) + ']';
+                    if (!conf.has(aliasPath))
+                    {
+                        break;
+                    }
+                    newAppConfig.insert(std::make_pair(aliasPath, ""));
+                }
+            }
+
+            //if number of alias_groups defined in configuration are greater than number of alias_group
+            //fetched from json, overwrite the remaining alias_groups from config file to empty strings and
+            for (;; i++)
+            {
+                const std::string path =
+                    "storage.wopi.alias_groups.group[" + std::to_string(i) + "].host";
+                if (!conf.has(path))
+                {
+                    break;
+                }
+                newAppConfig.insert(std::make_pair(path, ""));
+                newAppConfig.insert(std::make_pair(path + "[@allowed]", "false"));
+            }
+        }
+        catch (const std::exception& exc)
+        {
+            LOG_ERR("Fetching of alias groups failed with error: " << exc.what()
+                                                                   << "please check JSON format");
+        }
+    }
+
+    //sets property to false if it is missing from JSON
+    //and returns std::string
+    std::string booleanToString(Poco::Dynamic::Var& booleanFlag)
+    {
+        if (booleanFlag.isEmpty())
+        {
+            booleanFlag = "false";
+        }
+        return booleanFlag.toString();
+    }
+};
+#endif
+
 void COOLWSD::innerInitialize(Application& self)
 {
 #if !MOBILEAPP
@@ -1020,7 +1380,7 @@ void COOLWSD::innerInitialize(Application& self)
 
     StartTime = std::chrono::steady_clock::now();
 
-    auto& conf = config();
+    LayeredConfiguration& conf = config();
 
     // Add default values of new entries here, so there is a sensible default in case
     // the setting is missing from the config file. It is possible that users do not
@@ -1030,118 +1390,132 @@ void COOLWSD::innerInitialize(Application& self)
     // 2) in the 'default' attribute in coolwsd.xml, which is for documentation
     // 3) the default parameter of getConfigValue() call. That is used when the
     //    setting is present in coolwsd.xml, but empty (i.e. use the default).
-    static const std::map<std::string, std::string> DefAppConfig
-        = { { "allowed_languages", "de_DE en_GB en_US es_ES fr_FR it nl pt_BR pt_PT ru" },
-            { "admin_console.enable_pam", "false" },
-            { "child_root_path", "jails" },
-            { "file_server_root_path", "browser/.." },
-            { "hexify_embedded_urls", "false" },
-            { "lo_jail_subpath", "lo" },
-            { "logging.protocol", "false" },
-            { "logging.anonymize.filenames", "false" }, // Deprecated.
-            { "logging.anonymize.usernames", "false" }, // Deprecated.
-            // { "logging.anonymize.anonymize_user_data", "false" }, // Do not set to fallback on filename/username.
-            { "logging.color", "true" },
-            { "logging.file.property[0]", "coolwsd.log" },
-            { "logging.file.property[0][@name]", "path" },
-            { "logging.file.property[1]", "never" },
-            { "logging.file.property[1][@name]", "rotation" },
-            { "logging.file.property[2]", "true" },
-            { "logging.file.property[2][@name]", "compress" },
-            { "logging.file.property[3]", "false" },
-            { "logging.file.property[3][@name]", "flush" },
-            { "logging.file.property[4]", "10 days" },
-            { "logging.file.property[4][@name]", "purgeAge" },
-            { "logging.file.property[5]", "10" },
-            { "logging.file.property[5][@name]", "purgeCount" },
-            { "logging.file.property[6]", "true" },
-            { "logging.file.property[6][@name]", "rotationOnOpen" },
-            { "logging.file.property[7]", "false" },
-            { "logging.file.property[7][@name]", "archive" },
-            { "logging.file[@enable]", "false" },
-            { "logging.level", "trace" },
-            { "logging.lokit_sal_log", "-INFO-WARN" },
-            { "browser_logging", "false" },
-            { "mount_jail_tree", "true" },
-            { "net.connection_timeout_secs", "30" },
-            { "net.listen", "any" },
-            { "net.proto", "all" },
-            { "net.service_root", "" },
-            { "net.proxy_prefix", "false" },
-            { "num_prespawn_children", "1" },
-            { "per_document.always_save_on_exit", "false" },
-            { "per_document.autosave_duration_secs", "300" },
-            { "per_document.cleanup.cleanup_interval_ms", "10000" },
-            { "per_document.cleanup.bad_behavior_period_secs", "60" },
-            { "per_document.cleanup.idle_time_secs", "300" },
-            { "per_document.cleanup.limit_dirty_mem_mb", "3072" },
-            { "per_document.cleanup.limit_cpu_per", "85" },
-            { "per_document.cleanup.lost_kit_grace_period_secs", "120"},
-            { "per_document.cleanup[@enable]", "false" },
-            { "per_document.document_signing_url", VEREIGN_URL },
-            { "per_document.idle_timeout_secs", "3600" },
-            { "per_document.idlesave_duration_secs", "30" },
-            { "per_document.limit_file_size_mb", "0" },
-            { "per_document.limit_num_open_files", "0" },
-            { "per_document.limit_load_secs", "100" },
-            { "per_document.limit_convert_secs", "100" },
-            { "per_document.limit_stack_mem_kb", "8000" },
-            { "per_document.limit_virt_mem_mb", "0" },
-            { "per_document.max_concurrency", "4" },
-            { "per_document.batch_priority", "5" },
-            { "per_document.pdf_resolution_dpi", "96"},
-            { "per_document.redlining_as_comments", "false" },
-            { "per_view.idle_timeout_secs", "900" },
-            { "per_view.out_of_focus_timeout_secs", "120" },
-            { "security.capabilities", "true" },
-            { "security.seccomp", "true" },
-            { "security.jwt_expiry_secs", "1800" },
-            { "security.enable_metrics_unauthenticated", "false" },
-            { "server_name", "" },
-            { "ssl.ca_file_path", COOLWSD_CONFIGDIR "/ca-chain.cert.pem" },
-            { "ssl.cert_file_path", COOLWSD_CONFIGDIR "/cert.pem" },
-            { "ssl.enable", "true" },
-            { "ssl.hpkp.max_age[@enable]", "true" },
-            { "ssl.hpkp.report_uri[@enable]", "false" },
-            { "ssl.hpkp[@enable]", "false" },
-            { "ssl.hpkp[@report_only]", "false" },
-            { "ssl.key_file_path", COOLWSD_CONFIGDIR "/key.pem" },
-            { "ssl.termination", "true" },
-            { "storage.filesystem[@allow]", "false" },
-//            "storage.ssl.enable" - deliberately not set; for back-compat
-            { "storage.wopi.host[0]", "localhost" },
-            { "storage.wopi.host[0][@allow]", "true" },
-            { "storage.wopi.max_file_size", "0" },
-            { "storage.wopi[@allow]", "true" },
-            { "storage.wopi.locking.refresh", "900" },
-            { "sys_template_path", "systemplate" },
-            { "trace_event[@enable]", "false" },
-            { "trace.path[@compress]", "true" },
-            { "trace.path[@snapshot]", "false" },
-            { "trace[@enable]", "false" },
-            { "welcome.enable", ENABLE_WELCOME_MESSAGE },
-            { "welcome.enable_button", ENABLE_WELCOME_MESSAGE_BUTTON },
-            { "welcome.path", "browser/welcome" },
-#ifdef ENABLE_FREEMIUM
-            { "freemium.disabled_commands", DISABLED_COMMANDS },
-            { "freemium.purchase_title", PURCHASE_TITLE },
-            { "freemium.purchase_link", PURCHASE_LINK },
-            { "freemium.purchase_description", PURCHASE_DESCRIPTION },
-            { "freemium.writer_subscription_highlights", WRITER_SUBSCRIPTION_HIGHLIGHTS },
-            { "freemium.calc_subscription_highlights", CALC_SUBSCRIPTION_HIGHLIGHTS },
-            { "freemium.impress_subscription_highlights", IMPRESS_SUBSCRIPTION_HIGHLIGHTS },
-            { "freemium.draw_subscription_highlights", DRAW_SUBSCRIPTION_HIGHLIGHTS },
+    static const std::map<std::string, std::string> DefAppConfig = {
+        { "allowed_languages", "de_DE en_GB en_US es_ES fr_FR it nl pt_BR pt_PT ru" },
+        { "admin_console.enable_pam", "false" },
+        { "child_root_path", "jails" },
+        { "file_server_root_path", "browser/.." },
+        { "hexify_embedded_urls", "false" },
+        { "experimental_features", "false" },
+        { "lo_jail_subpath", "lo" },
+        { "logging.protocol", "false" },
+        { "logging.anonymize.filenames", "false" }, // Deprecated.
+        { "logging.anonymize.usernames", "false" }, // Deprecated.
+        // { "logging.anonymize.anonymize_user_data", "false" }, // Do not set to fallback on filename/username.
+        { "logging.color", "true" },
+        { "logging.file.property[0]", "coolwsd.log" },
+        { "logging.file.property[0][@name]", "path" },
+        { "logging.file.property[1]", "never" },
+        { "logging.file.property[1][@name]", "rotation" },
+        { "logging.file.property[2]", "true" },
+        { "logging.file.property[2][@name]", "compress" },
+        { "logging.file.property[3]", "false" },
+        { "logging.file.property[3][@name]", "flush" },
+        { "logging.file.property[4]", "10 days" },
+        { "logging.file.property[4][@name]", "purgeAge" },
+        { "logging.file.property[5]", "10" },
+        { "logging.file.property[5][@name]", "purgeCount" },
+        { "logging.file.property[6]", "true" },
+        { "logging.file.property[6][@name]", "rotationOnOpen" },
+        { "logging.file.property[7]", "false" },
+        { "logging.file.property[7][@name]", "archive" },
+        { "logging.file[@enable]", "false" },
+        { "logging.level", "trace" },
+        { "logging.lokit_sal_log", "-INFO-WARN" },
+        { "browser_logging", "false" },
+        { "mount_jail_tree", "true" },
+        { "net.connection_timeout_secs", "30" },
+        { "net.listen", "any" },
+        { "net.proto", "all" },
+        { "net.service_root", "" },
+        { "net.proxy_prefix", "false" },
+        { "num_prespawn_children", "1" },
+        { "per_document.always_save_on_exit", "false" },
+        { "per_document.autosave_duration_secs", "300" },
+        { "per_document.cleanup.cleanup_interval_ms", "10000" },
+        { "per_document.cleanup.bad_behavior_period_secs", "60" },
+        { "per_document.cleanup.idle_time_secs", "300" },
+        { "per_document.cleanup.limit_dirty_mem_mb", "3072" },
+        { "per_document.cleanup.limit_cpu_per", "85" },
+        { "per_document.cleanup.lost_kit_grace_period_secs", "120" },
+        { "per_document.cleanup[@enable]", "false" },
+        { "per_document.document_signing_url", VEREIGN_URL },
+        { "per_document.idle_timeout_secs", "3600" },
+        { "per_document.idlesave_duration_secs", "30" },
+        { "per_document.limit_file_size_mb", "0" },
+        { "per_document.limit_num_open_files", "0" },
+        { "per_document.limit_load_secs", "100" },
+        { "per_document.limit_store_failures", "5" },
+        { "per_document.limit_convert_secs", "100" },
+        { "per_document.limit_stack_mem_kb", "8000" },
+        { "per_document.limit_virt_mem_mb", "0" },
+        { "per_document.max_concurrency", "4" },
+        { "per_document.batch_priority", "5" },
+        { "per_document.pdf_resolution_dpi", "96" },
+        { "per_document.redlining_as_comments", "false" },
+        { "per_view.group_download_as", "false" },
+        { "per_view.idle_timeout_secs", "900" },
+        { "per_view.out_of_focus_timeout_secs", "120" },
+        { "security.capabilities", "true" },
+        { "security.seccomp", "true" },
+        { "security.jwt_expiry_secs", "1800" },
+        { "security.enable_metrics_unauthenticated", "false" },
+        { "certificates.database_path", "" },
+        { "server_name", "" },
+        { "ssl.ca_file_path", COOLWSD_CONFIGDIR "/ca-chain.cert.pem" },
+        { "ssl.cert_file_path", COOLWSD_CONFIGDIR "/cert.pem" },
+        { "ssl.enable", "true" },
+        { "ssl.hpkp.max_age[@enable]", "true" },
+        { "ssl.hpkp.report_uri[@enable]", "false" },
+        { "ssl.hpkp[@enable]", "false" },
+        { "ssl.hpkp[@report_only]", "false" },
+        { "ssl.sts.enabled", "false" },
+        { "ssl.sts.max_age", "31536000" },
+        { "ssl.key_file_path", COOLWSD_CONFIGDIR "/key.pem" },
+        { "ssl.termination", "true" },
+        { "storage.filesystem[@allow]", "false" },
+        // "storage.ssl.enable" - deliberately not set; for back-compat
+        { "storage.wopi.host[0]", "localhost" },
+        { "storage.wopi.host[0][@allow]", "true" },
+        { "storage.wopi.max_file_size", "0" },
+        { "storage.wopi[@allow]", "true" },
+        { "storage.wopi.locking.refresh", "900" },
+        { "sys_template_path", "systemplate" },
+        { "trace_event[@enable]", "false" },
+        { "trace.path[@compress]", "true" },
+        { "trace.path[@snapshot]", "false" },
+        { "trace[@enable]", "false" },
+        { "welcome.enable", "false" },
+#ifdef ENABLE_FEATURE_LOCK
+        { "feature_lock.locked_hosts[@allow]", "false"},
+        { "feature_lock.locked_hosts.fallback[@read_only]", "false"},
+        { "feature_lock.locked_hosts.fallback[@disabled_commands]", "false"},
+        { "feature_lock.locked_hosts.host[0]", "localhost"},
+        { "feature_lock.locked_hosts.host[0][@read_only]", "false"},
+        { "feature_lock.locked_hosts.host[0][@disabled_commands]", "false"},
+        { "feature_lock.is_lock_readonly", "false" },
+        { "feature_lock.locked_commands", LOCKED_COMMANDS },
+        { "feature_lock.unlock_title", UNLOCK_TITLE },
+        { "feature_lock.unlock_link", UNLOCK_LINK },
+        { "feature_lock.unlock_description", UNLOCK_DESCRIPTION },
+        { "feature_lock.writer_unlock_highlights", WRITER_UNLOCK_HIGHLIGHTS },
+        { "feature_lock.calc_unlock_highlights", CALC_UNLOCK_HIGHLIGHTS },
+        { "feature_lock.impress_unlock_highlights", IMPRESS_UNLOCK_HIGHLIGHTS },
+        { "feature_lock.draw_unlock_highlights", DRAW_UNLOCK_HIGHLIGHTS },
 #endif
 #ifdef ENABLE_FEATURE_RESTRICTION
-            { "restricted_commands", "" },
+        { "restricted_commands", "" },
 #endif
-            { "user_interface.mode", USER_INTERFACE_MODE },
-            { "quarantine_files[@enable]", "false" },
-            { "quarantine_files.limit_dir_size_mb", "250" },
-            { "quarantine_files.max_versions_to_maintain", "2" },
-            { "quarantine_files.path", "quarantine" },
-            { "quarantine_files.expiry_min", "30" }
-          };
+        { "user_interface.mode", "default" },
+        { "user_interface.use_integration_theme", "true" },
+        { "quarantine_files[@enable]", "false" },
+        { "quarantine_files.limit_dir_size_mb", "250" },
+        { "quarantine_files.max_versions_to_maintain", "2" },
+        { "quarantine_files.path", "quarantine" },
+        { "quarantine_files.expiry_min", "30" },
+        { "remote_config.remote_url", ""},
+        { "storage.wopi.alias_groups[@mode]" , "first"}
+    };
 
     // Set default values, in case they are missing from the config file.
     AutoPtr<AppConfigMap> defConfig(new AppConfigMap(DefAppConfig));
@@ -1179,8 +1553,11 @@ void COOLWSD::innerInitialize(Application& self)
     // Allow UT to manipulate before using configuration values.
     UnitWSD::get().configure(config());
 
+    // Experimental features.
+    EnableExperimental = getConfigValue<bool>(conf, "experimental_features", false);
+
     // Setup user interface mode
-    UserInterface = getConfigValue<std::string>(conf, "user_interface.mode", "classic");
+    UserInterface = getConfigValue<std::string>(conf, "user_interface.mode", "default");
 
     // Set the log-level after complete initialization to force maximum details at startup.
     LogLevel = getConfigValue<std::string>(conf, "logging.level", "trace");
@@ -1265,7 +1642,8 @@ void COOLWSD::innerInitialize(Application& self)
     }
 
     ServerName = config().getString("server_name");
-    LOG_INF("Initializing coolwsd server [" << ServerName << "].");
+    LOG_INF("Initializing coolwsd server [" << ServerName << "]. Experimental features are "
+                                            << (EnableExperimental ? "enabled." : "disabled."));
 
     // Get anonymization settings.
 #if COOLWSD_ANONYMIZE_USER_DATA
@@ -1482,9 +1860,9 @@ void COOLWSD::innerInitialize(Application& self)
         Quarantine::createQuarantineMap();
     }
 
-    WelcomeFilesRoot = getPathFromConfig("welcome.path");
-    if (!getConfigValue<bool>(conf, "welcome.enable", true))
-        WelcomeFilesRoot = "";
+#if ENABLE_WELCOME_MESSAGE
+    conf.setString("welcome.enable", "true");
+#endif
 
     NumPreSpawnedChildren = getConfigValue<int>(conf, "num_prespawn_children", 1);
     if (NumPreSpawnedChildren < 1)
@@ -1651,7 +2029,7 @@ void COOLWSD::innerInitialize(Application& self)
 #if ENABLE_DEBUG
     std::string postMessageURI =
         getServiceURI("/browser/dist/framed.doc.html?file_path="
-                      DEBUG_ABSSRCDIR "/" COOLWSD_TEST_DOCUMENT_RELATIVE_PATH_CALC);
+                      DEBUG_ABSSRCDIR "/" COOLWSD_TEST_DOCUMENT_RELATIVE_PATH_WRITER);
     std::cerr << "\nLaunch one of these in your browser:\n\n"
               << "    Writer:      " << getLaunchURI(COOLWSD_TEST_DOCUMENT_RELATIVE_PATH_WRITER) << '\n'
               << "    Calc:        " << getLaunchURI(COOLWSD_TEST_DOCUMENT_RELATIVE_PATH_CALC) << '\n'
@@ -1815,6 +2193,10 @@ void COOLWSD::defineOptions(OptionSet& optionSet)
                         .repeatable(false)
                         .argument("path"));
 
+    optionSet.addOption(Option("unattended", "", "Unattended run, won't wait for a debugger on faulting.")
+                        .required(false)
+                        .repeatable(false));
+
 #if ENABLE_DEBUG
     optionSet.addOption(Option("unitlib", "", "Unit testing library path.")
                         .required(false)
@@ -1887,6 +2269,11 @@ void COOLWSD::handleOption(const std::string& optionName,
 #if ENABLE_DEBUG
     else if (optionName == "unitlib")
         UnitTestLibrary = value;
+    else if (optionName == "unattended")
+    {
+        UnattendedRun = true;
+        SigUtil::setUnattended();
+    }
     else if (optionName == "careerspan")
         careerSpanMs = std::chrono::seconds(std::stoi(value)); // Convert second to ms
     else if (optionName == "singlekit")
@@ -1984,7 +2371,7 @@ bool COOLWSD::checkAndRestoreForKit()
             }
             else
             {
-                LOG_WRN("Unknown status returned by waitpid: " << std::hex << status << '.');
+                LOG_WRN("Unknown status returned by waitpid: " << std::hex << status << std::dec);
             }
 
             return true;
@@ -2119,6 +2506,9 @@ bool COOLWSD::createForKit()
 #else
     LOG_INF("Creating new forkit process.");
 
+    // Creating a new forkit is always a slow process.
+    ChildSpawnTimeoutMs = CHILD_TIMEOUT_MS * 4;
+
     std::unique_lock<std::mutex> newChildrenLock(NewChildrenMutex);
 
     StringVector args;
@@ -2175,6 +2565,9 @@ bool COOLWSD::createForKit()
 
     if (!CheckCoolUser)
         args.push_back("--disable-cool-user-checking");
+
+    if (UnattendedRun)
+        args.push_back("--unattended");
 
 #if ENABLE_DEBUG
     if (SingleKit)
@@ -2254,9 +2647,11 @@ static std::shared_ptr<DocumentBroker>
 
     cleanupDocBrokers();
 
-    if (SigUtil::getTerminationFlag())
+    if (SigUtil::getShutdownRequestFlag())
     {
-        LOG_ERR("TerminationFlag set. Not loading new session [" << id << ']');
+        // TerminationFlag implies ShutdownRequested.
+        LOG_ERR((SigUtil::getTerminationFlag() ? "TerminationFlag" : "ShudownRequestedFlag")
+                << " set. Not loading new session [" << id << ']');
         return nullptr;
     }
 
@@ -2271,14 +2666,15 @@ static std::shared_ptr<DocumentBroker>
         docBroker = it->second;
 
         // Destroying the document? Let the client reconnect.
-        if (docBroker->isMarkedToDestroy())
+        if (docBroker->isUnloading())
         {
-            LOG_WRN("DocBroker with docKey [" << docKey << "] that is marked to be destroyed. Rejecting client request.");
+            LOG_WRN("DocBroker with docKey ["
+                    << docKey << "] is unloading. Rejecting client request to load.");
             if (proto)
             {
-                std::string msg("error: cmd=load kind=docunloading");
+                const std::string msg("error: cmd=load kind=docunloading");
                 proto->sendTextMessage(msg.data(), msg.size());
-                proto->shutdown(true, "error: cmd=load kind=docunloading");
+                proto->shutdown(true, msg);
             }
             return nullptr;
         }
@@ -2288,9 +2684,11 @@ static std::shared_ptr<DocumentBroker>
         LOG_DBG("No DocumentBroker with docKey [" << docKey << "] found. New Child and Document.");
     }
 
-    if (SigUtil::getTerminationFlag())
+    if (SigUtil::getShutdownRequestFlag())
     {
-        LOG_ERR("TerminationFlag is set. Not loading new session [" << id << ']');
+        // TerminationFlag implies ShutdownRequested.
+        LOG_ERR((SigUtil::getTerminationFlag() ? "TerminationFlag" : "ShudownRequestedFlag")
+                << " set. Not loading new session [" << id << ']');
         return nullptr;
     }
 
@@ -2336,14 +2734,10 @@ public:
     }
     ~PrisonerRequestDispatcher()
     {
+        LOG_TRC("~PrisonerRequestDispatcher");
+
         // Notify the broker that we're done.
-        std::shared_ptr<ChildProcess> child = _childProcess.lock();
-        std::shared_ptr<DocumentBroker> docBroker = child ? child->getDocumentBroker() : nullptr;
-        if (docBroker)
-        {
-            // FIXME: No need to notify if asked to stop.
-            docBroker->stop("Request dispatcher destroyed.");
-        }
+        onDisconnect();
     }
 
 private:
@@ -2368,11 +2762,7 @@ private:
         if (docBroker)
         {
             std::unique_lock<std::mutex> lock = docBroker->getLock();
-            docBroker->assertCorrectThread();
-            if (docBroker->isAsyncSaveInProgress())
-                LOG_DBG("Don't stop DocumentBroker on disconnect: async saving in progress.");
-            else
-                docBroker->stop("docdisconnected");
+            docBroker->disconnectedFromKit();
         }
     }
 
@@ -2586,7 +2976,7 @@ public:
     {
         std::string addressToCheck = address;
         std::string hostToCheck = request.getHost();
-        bool allow = allowPostFrom(addressToCheck) || StorageBase::allowedWopiHost(hostToCheck);
+        bool allow = allowPostFrom(addressToCheck) || HostUtil::allowedWopiHost(hostToCheck);
 
         if(!allow)
         {
@@ -2602,7 +2992,7 @@ public:
         if(request.has("X-Forwarded-For"))
         {
             const std::string fowardedData = request.get("X-Forwarded-For");
-            StringVector tokens = Util::tokenize(fowardedData, ',');
+            StringVector tokens = StringVector::tokenize(fowardedData, ',');
             for (const auto& token : tokens)
             {
                 std::string param = tokens.getParam(token);
@@ -2612,7 +3002,7 @@ public:
                     if (!allowPostFrom(addressToCheck))
                     {
                         hostToCheck = Poco::Net::DNS::resolve(addressToCheck).name();
-                        allow &= StorageBase::allowedWopiHost(hostToCheck);
+                        allow &= HostUtil::allowedWopiHost(hostToCheck);
                     }
                 }
                 catch (const Poco::Exception& exc)
@@ -2682,7 +3072,7 @@ private:
         if (!socket->parseHeader("Client", startmessage, request, &map))
             return;
 
-        LOG_INF("Handling request: " << request.getURI());
+        LOG_DBG("Handling request: " << request.getURI());
         try
         {
             // We may need to re-write the chunks moving the inBuffer.
@@ -2804,9 +3194,12 @@ private:
                      requestDetails.equals(2, "ws") && requestDetails.isWebSocket())
                 handleClientWsUpgrade(request, requestDetails, disposition, socket);
 
-            else if (!requestDetails.isWebSocket() && requestDetails.equals(RequestDetails::Field::Type, "cool"))
+            else if (!requestDetails.isWebSocket() &&
+                     (requestDetails.equals(RequestDetails::Field::Type, "cool") ||
+                     requestDetails.equals(RequestDetails::Field::Type, "lool")))
             {
-                // All post requests have url prefix 'cool'.
+                // All post requests have url prefix 'cool', except when the prefix
+                // is 'lool' e.g. when integrations use the old /lool/convert-to endpoint
                 handlePostRequest(requestDetails, request, message, disposition, socket);
             }
             else
@@ -2907,7 +3300,7 @@ private:
     {
         assert(socket && "Must have a valid socket");
 
-        LOG_DBG("Favicon request: " << requestDetails.getURI());
+        LOG_TRC("Favicon request: " << requestDetails.getURI());
         std::string mimeType = "image/vnd.microsoft.icon";
         std::string faviconPath = Path(Application::instance().commandPath()).parent().toString() + "favicon.ico";
         if (!File(faviconPath).exists())
@@ -3281,6 +3674,12 @@ private:
                 const std::string docKey = RequestDetails::getDocKey(uriPublic);
 
                 std::string options;
+                if (form.has("options"))
+                {
+                    // Allow specifying options as-is, in case only data + format are used.
+                    options = form.get("options");
+                }
+
                 const bool fullSheetPreview
                     = (form.has("FullSheetPreview") && form.get("FullSheetPreview") == "true");
                 if (fullSheetPreview && format == "pdf" && isSpreadsheet(fromPath))
@@ -3288,6 +3687,21 @@ private:
                     //FIXME: We shouldn't have "true" as having the option already implies that
                     // we want it enabled (i.e. we shouldn't set the option if we don't want it).
                     options = ",FullSheetPreview=trueFULLSHEETPREVEND";
+                }
+                const std::string pdfVer = (form.has("PDFVer") ? form.get("PDFVer") : "");
+                if (!pdfVer.empty())
+                {
+                    if (strcasecmp(pdfVer.c_str(), "PDF/A-1b") && strcasecmp(pdfVer.c_str(), "PDF/A-2b") && strcasecmp(pdfVer.c_str(), "PDF/A-3b")
+                        && strcasecmp(pdfVer.c_str(), "PDF-1.5") && strcasecmp(pdfVer.c_str(), "PDF-1.6"))
+                    {
+                        LOG_ERR("Wrong PDF type: " << pdfVer << ". Conversion aborted.");
+                        http::Response httpResponse(http::StatusLine(400));
+                        httpResponse.set("Content-Length", "0");
+                        socket->sendAndShutdown(httpResponse);
+                        socket->ignoreInput();
+                        return;
+                    }
+                   options += ",PDFVer=" + pdfVer + "PDFVEREND";
                 }
 
                 // This lock could become a bottleneck.
@@ -3611,7 +4025,7 @@ private:
             bool isReadOnly = false;
             for (const auto& param : uriPublic.getQueryParameters())
             {
-                LOG_DBG("Query param: " << param.first << ", value: " << param.second);
+                LOG_TRC("Query param: " << param.first << ", value: " << param.second);
                 if (param.first == "permission" && param.second == "readonly")
                 {
                     isReadOnly = true;
@@ -3641,7 +4055,7 @@ private:
                             // Set WebSocketHandler's socket after its construction for shared_ptr goodness.
                             streamSocket->setHandler(ws);
 
-                            LOG_DBG("Socket #" << moveSocket->getFD() << " handler is " << clientSession->getName());
+                            LOG_DBG('#' << moveSocket->getFD() << " handler is " << clientSession->getName());
 
                             // Add and load the session.
                             docBroker->addSession(clientSession);
@@ -3688,6 +4102,7 @@ private:
                 else
                 {
                     LOG_WRN("Failed to create Client Session with id [" << _id << "] on docKey [" << docKey << "].");
+                    throw std::runtime_error("Cannot create client session for doc " + docKey);
                 }
             }
             else
@@ -3805,6 +4220,8 @@ private:
         Poco::JSON::Object::Ptr convert_to = new Poco::JSON::Object;
         Poco::Dynamic::Var available = allowConvertTo(socket->clientAddress(), request);
         convert_to->set("available", available);
+        if (available)
+            convert_to->set("endpoint", "/cool/convert-to");
 
         Poco::JSON::Object::Ptr capabilities = new Poco::JSON::Object;
         capabilities->set("convert-to", convert_to);
@@ -3953,6 +4370,9 @@ public:
         _acceptPoll.joinThread();
         if (WebServerPoll)
             WebServerPoll->joinThread();
+#if !MOBILEAPP
+        Admin::instance().stop();
+#endif
     }
 
     void dumpState(std::ostream& os)
@@ -3991,7 +4411,6 @@ public:
            << "\n  LoTemplate: " << COOLWSD::LoTemplate
            << "\n  ChildRoot: " << COOLWSD::ChildRoot
            << "\n  FileServerRoot: " << COOLWSD::FileServerRoot
-           << "\n  WelcomeFilesRoot: " << COOLWSD::WelcomeFilesRoot
            << "\n  ServiceRoot: " << COOLWSD::ServiceRoot
            << "\n  LOKitVersion: " << COOLWSD::LOKitVersion
            << "\n  HostIdentifier: " << Util::getProcessIdentifier()
@@ -4074,6 +4493,14 @@ private:
 
         LOG_INF("Listening to prisoner connections on " << location);
         MasterLocation = location;
+#ifndef HAVE_ABSTRACT_UNIX_SOCKETS
+        if(!socket->link(COOLWSD::SysTemplate + "/0" + MasterLocation))
+        {
+            LOG_FTL("Failed to hardlink local unix domain socket into a jail. Exiting.");
+            Log::shutdown();
+            _exit(EX_SOFTWARE);
+        }
+#endif
 #else
         constexpr int DEFAULT_MASTER_PORT_NUMBER = 9981;
         std::shared_ptr<ServerSocket> socket
@@ -4163,6 +4590,13 @@ int COOLWSD::innerMain()
 
     initializeSSL();
 
+    // Fetch remote settings from server if configured
+#if !MOBILEAPP
+    RemoteConfigPoll remoteConfigThread(config());
+    remoteConfigThread.start();
+#endif
+
+
 #ifndef IOS
     // We can open files with non-ASCII names just fine on iOS without this, and this code is
     // heavily Linux-specific anyway.
@@ -4207,7 +4641,7 @@ int COOLWSD::innerMain()
     ClientRequestDispatcher::InitStaticFileContentCache();
 
     // Allocate our port - passed to prisoners.
-    assert(Server && "No COOLWSD::Server instance exists.");
+    assert(Server && "The COOLWSDServer instance does not exist.");
     Server->findClientPort();
 
     // Start the internal prisoner server and spawn forkit,
@@ -4282,20 +4716,23 @@ int COOLWSD::innerMain()
     std::cerr << "Ready to accept connections on port " << ClientPortNumber <<  ".\n" << std::endl;
 #endif
 
-    // Reset the child-spawn timeout to the default, now that we're set.
-    ChildSpawnTimeoutMs = CHILD_TIMEOUT_MS;
-
     const auto startStamp = std::chrono::steady_clock::now();
 
     while (!SigUtil::getTerminationFlag() && !SigUtil::getShutdownRequestFlag())
     {
-        UnitWSD::get().invokeTest();
-
         // This timeout affects the recovery time of prespawned children.
-        const std::chrono::microseconds waitMicroS
-            = UnitWSD::isUnitTesting()
-                  ? std::min(UnitWSD::get().getTimeoutMilliSeconds(), std::chrono::milliseconds(1000)) / 4
-                  : SocketPoll::DefaultPollTimeoutMicroS * 4;
+        std::chrono::microseconds waitMicroS = SocketPoll::DefaultPollTimeoutMicroS * 4;
+
+        if (UnitWSD::isUnitTesting())
+        {
+            UnitWSD::get().invokeTest();
+
+            // More frequent polling while testing, to reduce total test time.
+            waitMicroS =
+                std::min(UnitWSD::get().getTimeoutMilliSeconds(), std::chrono::milliseconds(1000));
+            waitMicroS /= 4;
+        }
+
         mainWait.poll(waitMicroS);
 
         // Wake the prisoner poll to spawn some children, if necessary.
@@ -4306,12 +4743,9 @@ int COOLWSD::innerMain()
                                                                     - startStamp);
 
         // Unit test timeout
-        if (UnitWSD::isUnitTesting() && timeSinceStartMs > UnitWSD::get().getTimeoutMilliSeconds())
+        if (UnitWSD::isUnitTesting())
         {
-            LOG_ERR("Test exceeded its time limit of " << UnitWSD::get().getTimeoutMilliSeconds()
-                                                       << ". It's been running for "
-                                                       << timeSinceStartMs);
-            UnitWSD::get().timeout();
+            UnitWSD::get().checkTimeout(timeSinceStartMs);
         }
 
 #if ENABLE_DEBUG && !MOBILEAPP
@@ -4455,11 +4889,16 @@ int COOLWSD::innerMain()
     JailUtil::cleanupJails(ChildRoot);
 #endif // !MOBILEAPP
 
+    int returnValue = EX_OK;
+    UnitWSD::get().returnValue(returnValue);
+
+    LOG_INF("Process [loolwsd] finished with exit status: " << returnValue);
+
     // At least on centos7, Poco deadlocks while
     // cleaning up its SSL context singleton.
-    Util::forcedExit(EX_OK);
+    Util::forcedExit(returnValue);
 
-    return EX_OK;
+    return returnValue;
 }
 
 void COOLWSD::cleanup()
@@ -4508,7 +4947,7 @@ void COOLWSD::cleanup()
 int COOLWSD::main(const std::vector<std::string>& /*args*/)
 {
 #if MOBILEAPP && !defined IOS
-    SigUtil::resetTerminationFlag();
+    SigUtil::resetTerminationFlags();
 #endif
 
     int returnValue;
@@ -4561,7 +5000,8 @@ std::set<pid_t> COOLWSD::getKitPids()
         for (const auto &child : NewChildren)
         {
             pid = child->getPid();
-            pids.emplace(pid);
+            if (pid > 0)
+                pids.emplace(pid);
         }
     }
     {

@@ -2,11 +2,12 @@
 
 var helper = require('../../common/helper');
 
-describe.skip('Track Changes', function () {
-	var testFileName = 'track_changes.odt';
+describe('Track Changes', function () {
+	var origTestFileName = 'track_changes.odt';
+	var testFileName;
 
 	beforeEach(function () {
-		helper.beforeAll(testFileName, 'writer', undefined, true);
+		testFileName = helper.beforeAll(origTestFileName, 'writer', undefined, true);
 	});
 
 	afterEach(function () {

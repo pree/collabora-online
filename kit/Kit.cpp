@@ -20,7 +20,6 @@
 #include <sys/sysmacros.h>
 #endif
 #ifdef __FreeBSD__
-#include <sys/capsicum.h>
 #include <ftw.h>
 #define FTW_CONTINUE 0
 #define FTW_STOP (-1)
@@ -487,7 +486,7 @@ namespace
 
         if (nftw(source.c_str(), linkOrCopyFunction, 10, FTW_ACTIONRETVAL|FTW_PHYS) == -1)
         {
-            LOG_SYS("linkOrCopy: nftw() failed for '" << source << '\'');
+            LOG_ERR("linkOrCopy: nftw() failed for '" << source << '\'');
         }
 
         if (linkOrCopyVerboseLogging)
@@ -658,11 +657,12 @@ public:
             _sessions.emplace(sessionId, session);
             session->setCanonicalViewId(canonicalViewId);
 
-            int viewId = session->getViewId();
+            const int viewId = session->getViewId();
             _lastUpdatedAt[viewId] = std::chrono::steady_clock::now();
             _speedCount[viewId] = 0;
 
-            LOG_DBG("Sessions: " << _sessions.size());
+            LOG_DBG("Have " << _sessions.size() << " active sessions after creating "
+                            << session->getId());
             return true;
         }
         catch (const std::exception& ex)
@@ -689,6 +689,7 @@ public:
             {
                 if (it->second->isCloseFrame())
                 {
+                    LOG_DBG("Removing session [" << it->second->getId() << ']');
                     deadSessions.push_back(it->second);
                     it = _sessions.erase(it);
                 }
@@ -710,6 +711,12 @@ public:
 #endif
         }
 
+        LOG_TRC("Purging dead sessions, have " << num_sessions << " active sessions.");
+
+        // Don't destroy sessions while holding our lock.
+        // We may deadlock if a session is waiting on us
+        // during callback initiated while handling a command
+        // and the dtor tries to take its lock (which is taken).
         deadSessions.clear();
 
         return num_sessions;
@@ -928,7 +935,7 @@ public:
 
         if (type == LOK_CALLBACK_CELL_CURSOR)
         {
-            StringVector tokens(Util::tokenize(payload, ','));
+            StringVector tokens(StringVector::tokenize(payload, ','));
             // Payload may be 'EMPTY'.
             if (tokens.size() == 4)
             {
@@ -946,7 +953,7 @@ public:
             const Poco::Dynamic::Var result = parser.parse(payload);
             const auto& command = result.extract<Poco::JSON::Object::Ptr>();
             std::string rectangle = command->get("rectangle").toString();
-            StringVector tokens(Util::tokenize(rectangle, ','));
+            StringVector tokens(StringVector::tokenize(rectangle, ','));
             // Payload may be 'EMPTY'.
             if (tokens.size() == 4)
             {
@@ -967,7 +974,7 @@ public:
             targetViewId = command->get("viewId").toString();
             std::string part = command->get("part").toString();
             std::string text = command->get("rectangle").toString();
-            StringVector tokens(Util::tokenize(text, ','));
+            StringVector tokens(StringVector::tokenize(text, ','));
             // Payload may be 'EMPTY'.
             if (tokens.size() == 4)
             {
@@ -1022,12 +1029,15 @@ private:
         try
         {
             if (!load(session, renderOpts))
+            {
                 return false;
+            }
         }
         catch (const std::exception &exc)
         {
             LOG_ERR("Exception while loading url [" << uriAnonym <<
                     "] for session [" << sessionId << "]: " << exc.what());
+            session->sendTextFrameAndLogError("error: cmd=load kind=faileddocloading");
             return false;
         }
 
@@ -1522,8 +1532,11 @@ private:
         }
 
         // By default we enable spell-checking, unless it's disabled explicitly.
-        const bool bSet = (spellOnline != "false");
-        renderOptsObj->set(".uno:SpellOnline", makePropertyValue("boolean", bSet));
+        if (!spellOnline.empty())
+        {
+            const bool bSet = (spellOnline != "false");
+            renderOptsObj->set(".uno:SpellOnline", makePropertyValue("boolean", bSet));
+        }
 
         if (renderOptsObj)
         {
@@ -1575,7 +1588,7 @@ public:
 
                 LOG_TRC("Kit handling queue message: " << COOLProtocol::getAbbreviatedMessage(input));
 
-                const StringVector tokens = Util::tokenize(input.data(), input.size());
+                const StringVector tokens = StringVector::tokenize(input.data(), input.size());
 
                 if (tokens.equals(0, "eof"))
                 {
@@ -2175,7 +2188,7 @@ protected:
         if (UnitKit::get().filterKitMessage(this, message))
             return;
 #endif
-        StringVector tokens = Util::tokenize(message);
+        StringVector tokens = StringVector::tokenize(message);
         Log::StreamLogger logger = Log::debug();
         if (logger.enabled())
         {
@@ -2391,6 +2404,50 @@ void wakeCallback(void* pData)
 
 #ifndef BUILDING_TESTS
 
+namespace
+{
+#if !MOBILEAPP
+void copyCertificateDatabaseToTmp(Poco::Path const& jailPath)
+{
+    std::string aCertificatePathString = config::getString("certificates.database_path", "");
+    if (!aCertificatePathString.empty())
+    {
+        auto aFileStat = FileUtil::Stat(aCertificatePathString);
+
+        if (!aFileStat.exists() || !aFileStat.isDirectory())
+        {
+            LOG_WRN("Certificate database wasn't copied into the jail as path '" << aCertificatePathString << "' doesn't exist");
+            return;
+        }
+
+        Poco::Path aCertificatePath(aCertificatePathString);
+
+        Poco::Path aJailedCertDBPath(jailPath, "/tmp/certdb");
+        Poco::File(aJailedCertDBPath).createDirectories();
+
+        bool bCopied = false;
+        for (const char* pFilename : { "cert8.db", "cert9.db", "secmod.db", "key3.db", "key4.db" })
+        {
+            bool bResult = FileUtil::copy(Poco::Path(aCertificatePath, pFilename).toString(),
+                                Poco::Path(aJailedCertDBPath, pFilename).toString(), false, false);
+            bCopied |= bResult;
+        }
+        if (bCopied)
+        {
+            LOG_INF("Certificate database files found in '" << aCertificatePathString << "' and were copied to the jail");
+            ::setenv("LO_CERTIFICATE_DATABASE_PATH", "/tmp/certdb", 1);
+        }
+        else
+        {
+            LOG_WRN("No Certificate database files could be found in path '" << aCertificatePathString << "'");
+        }
+    }
+}
+#endif
+}
+
+
+
 void lokit_main(
 #if !MOBILEAPP
                 const std::string& childRoot,
@@ -2570,6 +2627,8 @@ void lokit_main(
             JailUtil::setupJailDevNodes(Poco::Path(jailPath, "/tmp").toString());
             ::setenv("TMPDIR", "/tmp", 1);
 
+            copyCertificateDatabaseToTmp(jailPath);
+
             // HOME must be writable, so create it in /tmp.
             constexpr const char* HomePathInJail = "/tmp/home";
             Poco::File(Poco::Path(jailPath, HomePathInJail)).createDirectories();
@@ -2603,8 +2662,6 @@ void lokit_main(
             dropCapability(CAP_MKNOD);
             dropCapability(CAP_FOWNER);
             dropCapability(CAP_CHOWN);
-#else
-            cap_enter();
 #endif
 
             LOG_DBG("Initialized jail nodes, dropped caps.");
@@ -2756,7 +2813,12 @@ void lokit_main(
             std::make_shared<KitWebSocketHandler>("child_ws", loKit, jailId, mainKit, numericIdentifier);
 
 #if !MOBILEAPP
-        mainKit->insertNewUnixSocket(MasterLocation, pathAndQuery, websocketHandler, ProcSMapsFile);
+        if (!mainKit->insertNewUnixSocket(MasterLocation, pathAndQuery, websocketHandler,
+                                          ProcSMapsFile))
+        {
+            LOG_SFL("Failed to connect to WSD. Will exit.");
+            Util::forcedExit(EX_SOFTWARE);
+        }
 #else
         mainKit->insertNewFakeSocket(docBrokerSocket, websocketHandler);
 #endif

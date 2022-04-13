@@ -2,11 +2,12 @@
 
 var helper = require('../../common/helper');
 
-describe.skip('Multiuser sheet operations', function() {
-	var testFileName = 'sheet_operations.ods';
+describe('Multiuser sheet operations', function() {
+	var origTestFileName = 'sheet_operations.ods';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'calc', undefined, true);
+		testFileName = helper.beforeAll(origTestFileName, 'calc', undefined, true);
 	});
 
 	afterEach(function() {

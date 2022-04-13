@@ -9,49 +9,81 @@ noinst_PROGRAMS = fakesockettest unittest unithttplib
 
 AM_CXXFLAGS = $(CPPUNIT_CFLAGS) -DTDOC=\"$(abs_top_srcdir)/test/data\" \
 	-I${top_srcdir}/common -I${top_srcdir}/net -I${top_srcdir}/wsd -I${top_srcdir}/kit \
-	-I${top_srcdir} \
+	-I${top_srcdir} -I${top_srcdir}/test \
 	-pthread -DCOOLWSD_DATADIR='"@COOLWSD_DATADIR@"' \
 	-DCOOLWSD_CONFIGDIR='"@COOLWSD_CONFIGDIR@"' \
 	-DDEBUG_ABSSRCDIR='"@abs_srcdir@"' \
 	${include_paths}
 
-noinst_LTLIBRARIES = \
-	unit-base.la unit-tiletest.la \
-	unit-integration.la unit-httpws.la unit-crash.la \
-	unit-convert.la unit-typing.la unit-copy-paste.la \
-	unit-timeout.la unit-prefork.la unit-storage.la \
-	unit-admin.la unit-tilecache.la \
-	unit-fuzz.la unit-http.la unit-oauth.la \
-	unit-wopi.la unit-wopi-saveas.la \
-	unit-wopi-async-upload-close.la unit-wopi-async-upload-modify.la \
-	unit-wopi-async-upload-modifyclose.la \
-	unit-wopi-ownertermination.la unit-wopi-versionrestore.la \
-	unit-wopi-documentconflict.la unit_wopi_renamefile.la unit_wopi_watermark.la \
-	unit-wopi-lock.la \
-	unit-tiff-load.la \
-	unit-large-paste.la \
-	unit-paste.la \
-	unit-load-torture.la \
-	unit-rendering-options.la \
-	unit-password-protected.la \
-	unit-render-search-result.la \
-	unit-render-shape.la \
+# These are ordered by how long each takes to run.
+# The longest-running tests are put first, the
+# fastest tests are last. This reduces the
+# total time with parallel runs.
+# The time each test takes is logged, looked for
+# 'Finished in' in the `make check` output.
+# When adding new tests, please maintain order.
+all_la_unit_tests = \
+	unit-wopi-async-slow.la \
+	unit-tiletest.la \
 	unit-each-view.la \
-	unit-session.la \
-	unit-uno-command.la \
-	unit-load.la \
-	unit-cursor.la \
-	unit-calc.la \
+	unit-httpws.la \
 	unit-insert-delete.la \
+	unit-uno-command.la \
+	unit-wopi-fail-upload.la \
+	unit-wopi-documentconflict.la \
+	unit-load-torture.la \
+	unit-wopi-save-on-exit.la \
+	unit-crash.la \
+	unit-integration.la \
 	unit-close.la \
-	unit-bad-doc-load.la \
-	unit-hosting.la \
-	unit-wopi-loadencoded.la \
-	unit-wopi-temp.la \
+	unit-calc.la \
+	unit-password-protected.la \
 	unit-wopi-fileurl.la \
-	unit-wopi-httpheaders.la \
+	unit-copy-paste.la \
+	unit-http.la \
+	unit-wopi-async-upload-modify.la \
+	unit-wopi-temp.la \
+	unit-cursor.la \
+	unit-session.la \
+	unit-render-shape.la \
+	unit-wopi-versionrestore.la \
+	unit-wopi-async-upload-close.la \
+	unit-wopi.la \
+	unit-render-search-result.la \
+	unit-tiff-load.la \
+	unit_wopi_renamefile.la \
+	unit-wopi-async-upload-modifyclose.la \
+	unit-convert.la \
+	unit-storage.la \
+	unit-rendering-options.la \
+	unit-paste.la \
+	unit-large-paste.la \
+	unit_wopi_watermark.la \
+	unit-wopi-saveas-with-encoded-file-name.la \
+	unit-wopi-saveas.la \
+	unit-wopi-crash-modified.la \
+	unit-typing.la \
+	unit-wopi-httpredirectloop.la \
 	unit-wopi-httpredirect.la \
-	unit-wopi-httpredirectloop.la
+	unit-wopi-loadencoded.la \
+	unit-load.la \
+	unit-wopi-lock.la \
+	unit-oauth.la \
+	unit-wopi-httpheaders.la \
+	unit-wopi-ownertermination.la \
+	unit-prefork.la \
+	unit-hosting.la \
+	unit-bad-doc-load.la \
+	unit-tilecache.la \
+	unit-timeout.la \
+	unit-base.la
+#	unit-admin.la
+
+if ENABLE_LIBFUZZER
+all_la_unit_tests += unit-fuzz.la
+endif
+
+noinst_LTLIBRARIES = ${all_la_unit_tests}
 
 MAGIC_TO_FORCE_SHLIB_CREATION = -rpath /dummy
 AM_LDFLAGS = -pthread -module $(MAGIC_TO_FORCE_SHLIB_CREATION) $(ZLIB_LIBS)
@@ -78,9 +110,12 @@ wsd_sources = \
 
 test_base_source = \
 	TileQueueTests.cpp \
+	RequestDetailsTests.cpp \
+	StringVectorTests.cpp \
 	WhiteBoxTests.cpp \
 	HttpWhiteBoxTests.cpp \
 	DeltaTests.cpp \
+	UtilTests.cpp \
 	WopiProofTests.cpp \
 	$(wsd_sources)
 
@@ -97,6 +132,7 @@ common_sources = \
 	../common/Util.cpp \
 	../common/StringVector.cpp \
 	../common/TraceEvent.cpp \
+	../wsd/Exceptions.cpp \
 	../net/HttpRequest.cpp \
 	../net/Socket.cpp \
 	../net/NetUtil.cpp \
@@ -142,7 +178,9 @@ unit_crash_la_LIBADD = $(CPPUNIT_LIBS)
 # unit test modules:
 unit_http_la_SOURCES = UnitHTTP.cpp
 unit_http_la_LIBADD = $(CPPUNIT_LIBS)
+if ENABLE_LIBFUZZER
 unit_fuzz_la_SOURCES = UnitFuzz.cpp
+endif
 unit_admin_la_SOURCES = UnitAdmin.cpp
 unit_admin_la_LIBADD = $(CPPUNIT_LIBS)
 unit_typing_la_SOURCES = UnitTyping.cpp
@@ -153,6 +191,7 @@ unit_convert_la_SOURCES = UnitConvert.cpp
 unit_timeout_la_SOURCES = UnitTimeout.cpp
 unit_prefork_la_SOURCES = UnitPrefork.cpp
 unit_storage_la_SOURCES = UnitStorage.cpp
+unit_storage_la_LIBADD = $(CPPUNIT_LIBS)
 unit_tilecache_la_SOURCES = UnitTileCache.cpp
 unit_oauth_la_SOURCES = UnitOAuth.cpp
 unit_oauth_la_LIBADD = $(CPPUNIT_LIBS)
@@ -164,14 +203,24 @@ unit_wopi_async_upload_modify_la_SOURCES = UnitWOPIAsyncUpload_Modify.cpp
 unit_wopi_async_upload_modify_la_LIBADD = $(CPPUNIT_LIBS)
 unit_wopi_async_upload_modifyclose_la_SOURCES = UnitWOPIAsyncUpload_ModifyClose.cpp
 unit_wopi_async_upload_modifyclose_la_LIBADD = $(CPPUNIT_LIBS)
+unit_wopi_async_slow_la_SOURCES = UnitWOPISlow.cpp
+unit_wopi_async_slow_la_LIBADD = $(CPPUNIT_LIBS)
+unit_wopi_crash_modified_la_SOURCES = UnitWOPICrashModified.cpp
+unit_wopi_crash_modified_la_LIBADD = $(CPPUNIT_LIBS)
 unit_wopi_saveas_la_SOURCES = UnitWOPISaveAs.cpp
 unit_wopi_saveas_la_LIBADD = $(CPPUNIT_LIBS)
+unit_wopi_saveas_with_encoded_file_name_la_SOURCES = UnitWOPISaveAsWithEncodedFileName.cpp
+unit_wopi_saveas_with_encoded_file_name_la_LIBADD = $(CPPUNIT_LIBS)
 unit_wopi_ownertermination_la_SOURCES = UnitWopiOwnertermination.cpp
 unit_wopi_ownertermination_la_LIBADD = $(CPPUNIT_LIBS)
 unit_wopi_versionrestore_la_SOURCES = UnitWOPIVersionRestore.cpp
 unit_wopi_versionrestore_la_LIBADD = $(CPPUNIT_LIBS)
 unit_wopi_documentconflict_la_SOURCES = UnitWOPIDocumentConflict.cpp
 unit_wopi_documentconflict_la_LIBADD = $(CPPUNIT_LIBS)
+unit_wopi_save_on_exit_la_SOURCES = UnitWOPISaveOnExit.cpp
+unit_wopi_save_on_exit_la_LIBADD = $(CPPUNIT_LIBS)
+unit_wopi_fail_upload_la_SOURCES = UnitWOPIFailUpload.cpp
+unit_wopi_fail_upload_la_LIBADD = $(CPPUNIT_LIBS)
 unit_wopi_renamefile_la_SOURCES = UnitWOPIRenameFile.cpp
 unit_wopi_renamefile_la_LIBADD = $(CPPUNIT_LIBS)
 unit_wopi_lock_la_SOURCES = UnitWOPILock.cpp
@@ -237,48 +286,14 @@ CLEANUP_COMMAND=if test -s ../coolwsd; then echo "Cleaning up..." && ../coolwsd 
 
 if HAVE_LO_PATH
 check-local:
-	$(CLEANUP_COMMAND)
-	./fakesockettest
+	@$(CLEANUP_COMMAND)
+	@UNITTEST=1 ./fakesockettest 2> test.log || cat test.log
 	@fc-cache "@LO_PATH@"/share/fonts/truetype
+	@echo "Done test check-local"
 
 TESTS = \
-	unit-base.la unit-tiletest.la \
-	unit-integration.la unit-httpws.la unit-crash.la \
-	unit-copy-paste.la unit-typing.la unit-convert.la unit-prefork.la unit-tilecache.la unit-timeout.la \
-	unit-oauth.la unit-wopi.la unit-wopi-saveas.la \
-	unit-wopi-async-upload-close.la unit-wopi-async-upload-modify.la \
-	unit-wopi-async-upload-modifyclose.la \
-	unit-wopi-ownertermination.la unit-wopi-versionrestore.la \
-	unit-wopi-documentconflict.la unit_wopi_renamefile.la unit_wopi_watermark.la \
-	unit-wopi-lock.la \
-	unit-http.la \
-	unit-tiff-load.la \
-	unit-large-paste.la \
-	unit-paste.la \
-	unit-load-torture.la \
-	unit-rendering-options.la \
-	unit-password-protected.la \
-	unit-render-search-result.la \
-	unit-render-shape.la \
-	unit-each-view.la \
-	unit-session.la \
-	unit-uno-command.la \
-	unit-load.la \
-	unit-cursor.la \
-	unit-calc.la \
-	unit-insert-delete.la \
-	unit-close.la \
-	unit-bad-doc-load.la \
-	unit-hosting.la \
-	unit-wopi-loadencoded.la \
-	unit-wopi-temp.la \
-	unit-wopi-fileurl.la \
-	unit-wopi-httpheaders.la \
-	unit-wopi-httpredirect.la \
-	unit-wopi-httpredirectloop.la \
+	${all_la_unit_tests} \
 	unithttplib
-# TESTS += unit-admin.test
-# TESTS += unit-storage.test
 
 endif
 
@@ -295,10 +310,11 @@ check_valgrind: all
 all-local: unittest
 	@echo
 	@echo "Running build-time unit tests.  For more thorough testing, please run 'make check'."
+	@echo "Test output is in `pwd`/test.log and is displayed on failure."
 	@echo
 	@fc-cache "@LO_PATH@"/share/fonts/truetype
-	@UNITTEST=1 ${top_builddir}/test/unittest
-	echo "Done test all-local"
-	$(CLEANUP_COMMAND)
+	@UNITTEST=1 ${top_builddir}/test/unittest 2> test.log || cat test.log
+	@echo "Done test all-local"
+	@$(CLEANUP_COMMAND)
 
 .PRECIOUS: $(TEST_LOGS)

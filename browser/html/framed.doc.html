@@ -90,6 +90,12 @@
         window.frames[0].postMessage(JSON.stringify({'MessageId': messageId}), '*');
       }
 
+      function ShowInsertButton() {
+        post({'MessageId': 'Insert_Button',
+              'Values': { 'id': 'Save', 'imgurl': 'images/lc_save.svg', 'hint': '', 'mobile': false, 'label': 'Show additional btns via Insert_Button', 'insertBefore': 'Save', 'unoCommand': '.uno:Save'}
+            });
+      }
+
       function ShowNotebookbar(notebookbar) {
         var value = notebookbar ? 'notebookbar' : 'classic';
         window.frames[0].postMessage(JSON.stringify({'MessageId': 'Host_PostmessageReady'}), '*');
@@ -157,15 +163,16 @@
 
     <h3>PostMessage test harness</h3>
 
-    <h4>Run python InsertText.py script</h4>
+    <h4>Run python scripts</h4>
     <form id="insert-text-form">
-      Click <button onclick="insertText(document.forms['insert-text-form'].elements['source'].value); return false;">here</button> to insert the following text into the document:
-      <textarea name="source" value="" rows="5" cols="50"></textarea>
+      <label for="fname"><b>InsertText.py</b>: inserts text into the document</label><br>
+      <textarea name="source" value="" rows="5" cols="50">Type your text and press Insert text</textarea><br>
+      <button onclick="insertText(document.forms['insert-text-form'].elements['source'].value); return false;">Insert text</button>
     </form>
-
-    <h4>Run Capitalize.py script</h4>
+    <br>
     <form id="insert-text-form">
-      Click <button onclick="capitalize(); return false;">here</button> to capitalize selected text in the document.</br></br>
+      <label for="fname"><b>Capitalize.py</b>: capitalize selected text in the document</label><br>
+      <button onclick="capitalize(); return false;">Capitalize selected text</button></br></br>
     </form>
 
     <h4>Various other messages to post</h4>
@@ -186,6 +193,7 @@
     <form id="menubar-toggle">
       <button onclick="ShowMenubar(false); return false;">Hide Menubar</button>
       <button onclick="ShowMenubar(true); return false;">Show Menubar</button>
+      <button onclick="ShowInsertButton(); return false;" title="via Insert_Button">Insert custom button</button>
       <p>
       <button onclick="ShowNotebookbar(false); return false;">Classic Toolbar</button>
       <button onclick="ShowNotebookbar(true); return false;">Notebookbar</button>

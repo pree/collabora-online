@@ -63,20 +63,14 @@ L.Control.AlertDialog = L.Control.extend({
 
 			if (isLinkValid) {
 				buttonsList.push({
-					text: _('Edit'),
-					type: 'button',
-					className: 'vex-dialog-button-secondary',
-					click: function() {
-						e.map.toggleCommandState('HyperlinkDialog');
-						vex.closeAll();
-					}
-				});
-
-				buttonsList.push({
 					text: _('Open link'),
 					type: 'button',
 					className: 'vex-dialog-button-primary',
 					click: function() {
+						if ('processCoolUrl' in window) {
+							url = window.processCoolUrl({ url: url, type: 'doc' });
+						}
+
 						window.open(url, '_blank');
 						vex.closeAll();
 					}
@@ -95,6 +89,8 @@ L.Control.AlertDialog = L.Control.extend({
 				}
 			});
 		} else if (e.cmd && e.kind) {
+			this._map.fire('hidebusy');
+
 			var msg = _('The server encountered a %0 error while parsing the %1 command.');
 			msg = msg.replace('%0', e.kind);
 			msg = msg.replace('%1', e.cmd);

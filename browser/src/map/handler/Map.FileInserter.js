@@ -96,6 +96,10 @@ L.Map.FileInserter = L.Handler.extend({
 		var map = this._map;
 		var url = this.getWopiUrl(map);
 
+		if ('processCoolUrl' in window) {
+			url = window.processCoolUrl({ url: url, type: 'insertfile' });
+		}
+
 		if (!(file.filename && file.url) && (file.name === '' || file.size === 0)) {
 			var errMsg =  _('The file of type: %0 cannot be uploaded to server since the file has no name');
 			if (file.size === 0)
@@ -161,6 +165,12 @@ L.Map.FileInserter = L.Handler.extend({
 				formData.append('file', file);
 			}
 			xmlHttp.send(formData);
+
+			// Set it to null in case server restarts/shuts down or the user reconnects after being idle
+			// these change the childId but it would be cached already with the old one if a previous insertfile is made.
+			// in that case we would get http error 400 because of the wrong childId.
+			// when it's null we ask for a new childId before uploading.
+			this._childId = null;
 		}
 	},
 

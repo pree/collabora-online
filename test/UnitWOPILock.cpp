@@ -7,6 +7,7 @@
 
 #include <config.h>
 
+#include "lokassert.hpp"
 #include <WopiTestServer.hpp>
 #include <Log.hpp>
 #include <Unit.hpp>
@@ -17,13 +18,7 @@
 
 class UnitWopiLock : public WopiTestServer
 {
-    enum class Phase
-    {
-        Load,
-        LockDocument,
-        UnlockDocument,
-        Polling
-    } _phase;
+    STATE_ENUM(Phase, Load, LockDocument, UnlockDocument, Done) _phase;
 
     std::string _lockState;
     std::string _lockString;
@@ -41,12 +36,12 @@ public:
         Poco::URI uriReq(request.getURI());
         Poco::RegularExpression regInfo("/wopi/files/[0-9]");
         Poco::RegularExpression regContent("/wopi/files/[0-9]/contents");
-        LOG_INF("Fake wopi host request: " << uriReq.toString());
+        LOG_TST("Fake wopi host request: " << request.getMethod() << ' ' << uriReq.toString());
 
         // CheckFileInfo
         if (request.getMethod() == "GET" && regInfo.match(uriReq.getPath()))
         {
-            LOG_INF("Fake wopi host request, handling CheckFileInfo: " << uriReq.getPath());
+            LOG_TST("Fake wopi host request, handling CheckFileInfo: " << uriReq.getPath());
             static int requestCount = 0;
 
             const std::string fileName(uriReq.getPath() == "/wopi/files/3" ? "he%llo.txt" : "hello.txt");
@@ -67,21 +62,12 @@ public:
 
             std::ostringstream jsonStream;
             fileInfo->stringify(jsonStream);
-            std::string responseString = jsonStream.str();
 
-            const std::string mimeType = "application/json; charset=utf-8";
+            http::Response httpResponse(http::StatusLine(200));
+            httpResponse.set("Last-Modified", Util::getHttpTime(getFileLastModifiedTime()));
+            httpResponse.setBody(jsonStream.str(), "application/json; charset=utf-8");
+            socket->sendAndShutdown(httpResponse);
 
-            std::ostringstream oss;
-            oss << "HTTP/1.1 200 OK\r\n"
-                "Last-Modified: " << Util::getHttpTime(getFileLastModifiedTime()) << "\r\n"
-                "User-Agent: " WOPI_AGENT_STRING "\r\n"
-                "Content-Length: " << responseString.size() << "\r\n"
-                "Content-Type: " << mimeType << "\r\n"
-                "\r\n"
-                << responseString;
-
-            socket->send(oss.str());
-            socket->shutdown();
             requestCount++;
 
             return true;
@@ -89,42 +75,26 @@ public:
         // GetFile
         else if (request.getMethod() == "GET" && regContent.match(uriReq.getPath()))
         {
-            LOG_INF("Fake wopi host request, handling GetFile: " << uriReq.getPath());
+            LOG_TST("Fake wopi host request, handling GetFile: " << uriReq.getPath());
 
-            const std::string mimeType = "text/plain; charset=utf-8";
-
-            std::ostringstream oss;
-            oss << "HTTP/1.1 200 OK\r\n"
-                "Last-Modified: " << Util::getHttpTime(getFileLastModifiedTime()) << "\r\n"
-                "User-Agent: " WOPI_AGENT_STRING "\r\n"
-                "Content-Length: " << getFileContent().size() << "\r\n"
-                "Content-Type: " << mimeType << "\r\n"
-                "\r\n"
-                << getFileContent();
-
-            socket->send(oss.str());
-            socket->shutdown();
+            http::Response httpResponse(http::StatusLine(200));
+            httpResponse.set("Last-Modified", Util::getHttpTime(getFileLastModifiedTime()));
+            httpResponse.setBody(getFileContent(), "text/plain; charset=utf-8");
+            socket->sendAndShutdown(httpResponse);
 
             return true;
         }
         // X-WOPI-Lock
         else if (request.getMethod() == "POST" && regInfo.match(uriReq.getPath()))
         {
-            LOG_INF("Fake wopi host request, handling Update Lock State: " << uriReq.getPath());
+            LOG_TST("Fake wopi host request, handling Update Lock State: " << uriReq.getPath());
 
             assertLockRequest(request);
 
-            const std::string mimeType = "text/html";
-            std::ostringstream oss;
-            oss << "HTTP/1.1 200 OK\r\n"
-                "Last-Modified: " << Util::getHttpTime(getFileLastModifiedTime()) << "\r\n"
-                "User-Agent: " WOPI_AGENT_STRING "\r\n"
-                "Content-Length: 0 \r\n"
-                "Content-Type: " << mimeType << "\r\n"
-                "\r\n";
+            http::Response httpResponse(http::StatusLine(200));
+            httpResponse.set("Last-Modified", Util::getHttpTime(getFileLastModifiedTime()));
+            socket->sendAndShutdown(httpResponse);
 
-            socket->send(oss.str());
-            socket->shutdown();
             return true;
         }
 
@@ -133,39 +103,55 @@ public:
 
     void assertLockRequest(const Poco::Net::HTTPRequest& request)
     {
-        std::string newLockState = request.get("X-WOPI-Override", std::string());
-        std::string lock = request.get("X-WOPI-Lock", std::string());
-        if (_phase == Phase::LockDocument && newLockState == "LOCK")
+        const std::string lock = request.get("X-WOPI-Lock", std::string());
+        const std::string newLockState = request.get("X-WOPI-Override", std::string());
+        LOG_TST("In " << toString(_phase) << ", X-WOPI-Lock: " << lock << ", X-WOPI-Override: "
+                      << newLockState << ", for URI: " << request.getURI());
+
+        if (_phase == Phase::LockDocument)
         {
-            LOK_ASSERT_MESSAGE("Lock String cannot be empty", lock != std::string());
-            _phase = Phase::UnlockDocument;
+            LOK_ASSERT_EQUAL_MESSAGE("Expected X-WOPI-Override:LOCK", std::string("LOCK"),
+                                     newLockState);
+            LOK_ASSERT_MESSAGE("Lock String cannot be empty", !lock.empty());
+            TRANSITION_STATE(_phase, Phase::UnlockDocument);
             _lockState = newLockState;
             _lockString = lock;
 
         }
-        else if (_phase == Phase::UnlockDocument && newLockState == "UNLOCK")
+        else if (_phase == Phase::UnlockDocument)
         {
-            LOK_ASSERT_MESSAGE("Document it not locked", _lockState != "UNLOCK");
+            LOK_ASSERT_EQUAL_MESSAGE("Expected X-WOPI-Override:UNLOCK", std::string("UNLOCK"),
+                                     newLockState);
+            LOK_ASSERT_MESSAGE("Document is not unlocked", _lockState != "UNLOCK");
             LOK_ASSERT_EQUAL(_lockString, lock);
-            _phase = Phase::Polling;
+            TRANSITION_STATE(_phase, Phase::Done);
             exitTest(TestResult::Ok);
+        }
+        else
+        {
+            LOK_ASSERT_FAIL("Unexpected lock-state change while in " + toString(_phase));
         }
     }
 
     void invokeWSDTest() override
     {
-        constexpr char testName[] = "UnitWopiLock";
-
         switch (_phase)
         {
             case Phase::Load:
             {
-                _phase = Phase::LockDocument;
+                // Always transition before issuing commands.
+                TRANSITION_STATE(_phase, Phase::LockDocument);
+
+                LOG_TST("Creating first connection");
                 initWebsocket("/wopi/files/0?access_token=anything");
+
+                LOG_TST("Creating second connection");
                 addWebSocket();
-                helpers::sendTextFrame(*getWs()->getCOOLWebSocket(), "load url=" + getWopiSrc(), testName);
-                helpers::sendTextFrame(*getWsAt(1)->getCOOLWebSocket(), "load url=" + getWopiSrc(), testName);
-                SocketPoll::wakeupWorld();
+
+                LOG_TST("Loading first view (editor)");
+                WSD_CMD_BY_CONNECTION_INDEX(0, "load url=" + getWopiSrc());
+                LOG_TST("Loading second view (viewer)");
+                WSD_CMD_BY_CONNECTION_INDEX(1, "load url=" + getWopiSrc());
                 break;
             }
             case Phase::LockDocument:
@@ -173,10 +159,11 @@ public:
             case Phase::UnlockDocument:
             {
                 // force kill the session with edit permission
+                LOG_TST("Disconnecting first connection with edit permission");
                 deleteSocketAt(0);
                 break;
             }
-            case Phase::Polling:
+            case Phase::Done:
             {
                 // just wait for the results
                 break;

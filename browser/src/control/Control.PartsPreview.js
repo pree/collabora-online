@@ -179,7 +179,7 @@ L.Control.PartsPreview = L.Control.extend({
 		var img = L.DomUtil.create('img', imgClassName, frame);
 		img.setAttribute('alt', _('preview of page ') + String(i + 1));
 		img.hash = hashCode;
-		img.src = 'images/preview_placeholder.png';
+		img.src = L.LOUtil.getImageURL('preview_placeholder.png');
 		img.fetched = false;
 		if (!window.mode.isDesktop()) {
 			(new Hammer(img, {recognizers: [[Hammer.Press]]}))
@@ -213,10 +213,9 @@ L.Control.PartsPreview = L.Control.extend({
 					// but would cause PgUp/Down to not work on desktop in slide sorter
 					document.activeElement.blur();
 				}
-				setTimeout(function() {
-					app.sectionContainer.requestReDraw();
-				}, 100);
 			}
+			if (app.file.fileBasedView)
+				this._map._docLayer._checkSelectedPart();
 		}, this);
 
 		this._layoutPreview(i, img, bottomBound);
@@ -381,19 +380,20 @@ L.Control.PartsPreview = L.Control.extend({
 	_setPart: function (e) {
 		var part = this._findClickedPart(e.target.parentNode);
 		if (part !== null) {
+			var partId = parseInt(part) - 1; // The first part is just a drop-site for reordering.
+
 			if (app.file.fileBasedView) {
+				this._map.setPart(partId);
 				this._scrollViewToPartPosition(part - 1);
 				return;
 			}
-
-			var partId = parseInt(part) - 1; // The first part is just a drop-site for reordering.
 
 			if (e.ctrlKey) {
 				this._map.selectPart(partId, 2, false); // Toggle selection on ctrl+click.
 				if (this.firstSelection === undefined)
 					this.firstSelection = this._map._docLayer._selectedPart;
 			} else if (e.altKey) {
-				console.log('alt');
+				window.app.console.log('alt');
 			} else if (e.shiftKey) {
 				if (this.firstSelection === undefined)
 					this.firstSelection = this._map._docLayer._selectedPart;
@@ -468,7 +468,7 @@ L.Control.PartsPreview = L.Control.extend({
 
 				for (it = 0; it < e.partNames.length; it++) {
 					this._previewTiles[it].hash = e.partNames[it];
-					this._previewTiles[it].src = 'images/preview_placeholder.png';
+					this._previewTiles[it].src = L.LOUtil.getImageURL('preview_placeholder.png');
 					this._previewTiles[it].fetched = false;
 				}
 			}
@@ -521,18 +521,6 @@ L.Control.PartsPreview = L.Control.extend({
 			L.DomUtil.remove(selectedFrame);
 
 			this._previewTiles.splice(e.selectedPart, 1);
-		}
-	},
-
-	_showMasterSlides: function() {
-		for (var i = this._map._docLayer._masterPageCount; i < this._previewTiles.length; ++i) {
-			$(this._previewTiles[i]).hide();
-		}
-	},
-
-	_hideMasterSlides: function() {
-		for (var i = this._map._docLayer._masterPageCount; i < this._previewTiles.length; ++i) {
-			$(this._previewTiles[i]).show();
 		}
 	},
 

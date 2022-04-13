@@ -45,6 +45,7 @@ L.SVGGroup = L.Layer.extend({
 		this._forEachSVGNode(function (svgNode) {
 			svgNode.setAttribute('width', size.x);
 			svgNode.setAttribute('height', size.y);
+			svgNode.setAttribute('preserveAspectRatio', 'none');
 		});
 	},
 
@@ -76,6 +77,10 @@ L.SVGGroup = L.Layer.extend({
 		this._update();
 	},
 
+	isCalcRTL: function () {
+		return this._map._docLayer.isCalcRTL();
+	},
+
 	_onDragStart: function(evt) {
 		if (!this._map || !this._dragShapePresent || !this.dragging)
 			return;
@@ -100,6 +105,9 @@ L.SVGGroup = L.Layer.extend({
 		this.dragging._onDragStart(data);
 
 		var pos = this._map.mouseEventToLatLng(evt);
+		if (this.isCalcRTL()) {
+			pos = this._map.negateLatLng(pos);
+		}
 		this.fire('graphicmovestart', {pos: pos});
 	},
 
@@ -133,6 +141,9 @@ L.SVGGroup = L.Layer.extend({
 
 		if (this._map) {
 			var pos = this._map.mouseEventToLatLng(evt);
+			if (this.isCalcRTL()) {
+				pos = this._map.negateLatLng(pos);
+			}
 			this.fire('graphicmoveend', {pos: pos});
 		}
 
@@ -244,6 +255,16 @@ L.SVGGroup = L.Layer.extend({
 		});
 	},
 
+	_hasVisibleEmbeddedSVG: function () {
+		var result = false;
+		this._forEachSVGNode(function (svgNode) {
+			if (parseInt(svgNode.getAttribute('opacity')) !== 0)
+				result = true;
+		});
+
+		return result;
+	},
+
 	_transform: function(matrix) {
 		if (this._renderer) {
 			if (matrix) {
@@ -257,7 +278,7 @@ L.SVGGroup = L.Layer.extend({
 	},
 
 	_project: function () {
-		// console.log()
+		// window.app.console.log()
 	},
 
 	_reset: function () {
@@ -297,7 +318,7 @@ L.SVGGroup = L.Layer.extend({
 
 	getPathNode: function (actualRenderer) {
 
-		console.assert(this._pathNodeCollection, 'missing _pathNodeCollection member!');
+		window.app.console.assert(this._pathNodeCollection, 'missing _pathNodeCollection member!');
 		return this._pathNodeCollection.getPathNode(actualRenderer);
 	},
 

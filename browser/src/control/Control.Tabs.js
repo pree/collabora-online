@@ -99,7 +99,7 @@ L.Control.Tabs = L.Control.extend({
 			};
 
 			this._menuItem['.uno:CopyTab'] = {
-				name: _UNO('.uno:CopyTab', 'spreadsheet', true),
+				name: _('Copy Sheet...'),
 				callback: function() {this._map.sendUnoCommand('.uno:Move');}.bind(this),
 				visible: function() {
 					return !areTabsMultiple();
@@ -203,7 +203,7 @@ L.Control.Tabs = L.Control.extend({
 					} else {
 						L.DomEvent.on(tab, 'dblclick', function(j) {
 							return function() {
-								// console.err('Double clicked ' + j);
+								// window.app.console.err('Double clicked ' + j);
 								this._tabForContextMenu = j;
 								this._renameSheet();
 							};
@@ -317,6 +317,7 @@ L.Control.Tabs = L.Control.extend({
 		var map = this._map;
 		var nPos = this._tabForContextMenu;
 		vex.dialog.open({
+			contentClassName: 'vex-has-inputs',
 			message: _('Enter new sheet name'),
 			buttons: [
 				$.extend({}, vex.dialog.buttons.YES, { text: _('OK') }),

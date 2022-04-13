@@ -21,10 +21,8 @@
 #include <TileDesc.hpp>
 #include <Util.hpp>
 #include <JsonUtil.hpp>
-#include <RequestDetails.hpp>
 
 #include <common/Message.hpp>
-#include <common/Authorization.hpp>
 #include <wsd/FileServer.hpp>
 #include <net/Buffer.hpp>
 #include <net/NetUtil.hpp>
@@ -38,31 +36,22 @@
 class WhiteBoxTests : public CPPUNIT_NS::TestFixture
 {
     CPPUNIT_TEST_SUITE(WhiteBoxTests);
-
     CPPUNIT_TEST(testCOOLProtocolFunctions);
     CPPUNIT_TEST(testSplitting);
     CPPUNIT_TEST(testMessage);
     CPPUNIT_TEST(testMessageAbbreviation);
-    CPPUNIT_TEST(testTokenizer);
-    CPPUNIT_TEST(testTokenizerTokenizeAnyOf);
     CPPUNIT_TEST(testReplace);
     CPPUNIT_TEST(testRegexListMatcher);
     CPPUNIT_TEST(testRegexListMatcher_Init);
     CPPUNIT_TEST(testEmptyCellCursor);
     CPPUNIT_TEST(testTileDesc);
     CPPUNIT_TEST(testRectanglesIntersect);
-    CPPUNIT_TEST(testAuthorization);
     CPPUNIT_TEST(testJson);
     CPPUNIT_TEST(testAnonymization);
-    CPPUNIT_TEST(testTime);
+    CPPUNIT_TEST(testIso8601Time);
+    CPPUNIT_TEST(testClockAsString);
     CPPUNIT_TEST(testBufferClass);
-    CPPUNIT_TEST(testStringVector);
     CPPUNIT_TEST(testHexify);
-    CPPUNIT_TEST(testRequestDetails_DownloadURI);
-    CPPUNIT_TEST(testRequestDetails_coolURI);
-    CPPUNIT_TEST(testRequestDetails_local);
-    CPPUNIT_TEST(testRequestDetails_local_hexified);
-    CPPUNIT_TEST(testRequestDetails);
     CPPUNIT_TEST(testUIDefaults);
     CPPUNIT_TEST(testCSSVars);
     CPPUNIT_TEST(testStat);
@@ -73,33 +62,27 @@ class WhiteBoxTests : public CPPUNIT_NS::TestFixture
     CPPUNIT_TEST(testSafeAtoi);
     CPPUNIT_TEST(testBytesToHex);
     CPPUNIT_TEST(testJsonUtilEscapeJSONValue);
-
+#if ENABLE_DEBUG
+    CPPUNIT_TEST(testUtf8);
+#endif
     CPPUNIT_TEST_SUITE_END();
 
     void testCOOLProtocolFunctions();
     void testSplitting();
     void testMessage();
     void testMessageAbbreviation();
-    void testTokenizer();
-    void testTokenizerTokenizeAnyOf();
     void testReplace();
     void testRegexListMatcher();
     void testRegexListMatcher_Init();
     void testEmptyCellCursor();
     void testTileDesc();
     void testRectanglesIntersect();
-    void testAuthorization();
     void testJson();
     void testAnonymization();
-    void testTime();
+    void testIso8601Time();
+    void testClockAsString();
     void testBufferClass();
-    void testStringVector();
     void testHexify();
-    void testRequestDetails_DownloadURI();
-    void testRequestDetails_coolURI();
-    void testRequestDetails_local();
-    void testRequestDetails_local_hexified();
-    void testRequestDetails();
     void testUIDefaults();
     void testCSSVars();
     void testStat();
@@ -110,10 +93,13 @@ class WhiteBoxTests : public CPPUNIT_NS::TestFixture
     void testSafeAtoi();
     void testBytesToHex();
     void testJsonUtilEscapeJSONValue();
+    void testUtf8();
 };
 
 void WhiteBoxTests::testCOOLProtocolFunctions()
 {
+    constexpr auto testname = __func__;
+
     int foo;
     LOK_ASSERT(COOLProtocol::getTokenInteger("foo=42", "foo", foo));
     LOK_ASSERT_EQUAL(42, foo);
@@ -132,7 +118,7 @@ void WhiteBoxTests::testCOOLProtocolFunctions()
     LOK_ASSERT_EQUAL(2, mumble);
 
     std::string message("hello x=1 y=2 foo=42 bar=hello-sailor mumble='goodbye' zip zap");
-    StringVector tokens(Util::tokenize(message));
+    StringVector tokens(StringVector::tokenize(message));
 
     LOK_ASSERT(COOLProtocol::getTokenInteger(tokens, "foo", foo));
     LOK_ASSERT_EQUAL(42, foo);
@@ -201,10 +187,32 @@ void WhiteBoxTests::testCOOLProtocolFunctions()
     LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), Util::trim(s).size());
     s = "   ";
     LOK_ASSERT_EQUAL(std::string(""), Util::trim(s));
+
+    // Integer lists.
+    std::vector<int> ints;
+
+    ints = COOLProtocol::tokenizeInts(std::string("-1"));
+    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), ints.size());
+    LOK_ASSERT_EQUAL(-1, ints[0]);
+
+    ints = COOLProtocol::tokenizeInts(std::string("1,2,3,4"));
+    LOK_ASSERT_EQUAL(static_cast<std::size_t>(4), ints.size());
+    LOK_ASSERT_EQUAL(1, ints[0]);
+    LOK_ASSERT_EQUAL(2, ints[1]);
+    LOK_ASSERT_EQUAL(3, ints[2]);
+    LOK_ASSERT_EQUAL(4, ints[3]);
+
+    ints = COOLProtocol::tokenizeInts("");
+    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), ints.size());
+
+    ints = COOLProtocol::tokenizeInts(std::string(",,,"));
+    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), ints.size());
 }
 
 void WhiteBoxTests::testSplitting()
 {
+    constexpr auto testname = __func__;
+
     LOK_ASSERT_EQUAL(std::string(), Util::getDelimitedInitialSubstring(nullptr, 5, '\n'));
     LOK_ASSERT_EQUAL(std::string(), Util::getDelimitedInitialSubstring(nullptr, -1, '\n'));
     LOK_ASSERT_EQUAL(std::string(), Util::getDelimitedInitialSubstring("abc", 0, '\n'));
@@ -349,6 +357,8 @@ void WhiteBoxTests::testMessage()
 
 void WhiteBoxTests::testMessageAbbreviation()
 {
+    constexpr auto testname = __func__;
+
     LOK_ASSERT_EQUAL(std::string(), Util::getDelimitedInitialSubstring(nullptr, 5, '\n'));
     LOK_ASSERT_EQUAL(std::string(), Util::getDelimitedInitialSubstring(nullptr, -1, '\n'));
     LOK_ASSERT_EQUAL(std::string(), Util::getDelimitedInitialSubstring("abc", 0, '\n'));
@@ -373,189 +383,10 @@ void WhiteBoxTests::testMessageAbbreviation()
     LOK_ASSERT_EQUAL(abbr, COOLProtocol::getAbbreviatedMessage(s));
 }
 
-void WhiteBoxTests::testTokenizer()
-{
-    StringVector tokens;
-
-    tokens = Util::tokenize("");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), tokens.size());
-
-    tokens = Util::tokenize("  ");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), tokens.size());
-
-    tokens = Util::tokenize("A");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenize("  A");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenize("A  ");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenize(" A ");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenize(" A  Z ");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(2), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("Z"), tokens[1]);
-
-    tokens = Util::tokenize("\n");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), tokens.size());
-
-    tokens = Util::tokenize(" A  \nZ ");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenize(" A  Z\n ");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(2), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("Z"), tokens[1]);
-
-    tokens = Util::tokenize(" A  Z  \n ");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(2), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("Z"), tokens[1]);
-
-    tokens = Util::tokenize("tile nviewid=0 part=0 width=256 height=256 tileposx=0 tileposy=0 tilewidth=3840 tileheight=3840 ver=-1");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(10), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("tile"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("nviewid=0"), tokens[1]);
-    LOK_ASSERT_EQUAL(std::string("part=0"), tokens[2]);
-    LOK_ASSERT_EQUAL(std::string("width=256"), tokens[3]);
-    LOK_ASSERT_EQUAL(std::string("height=256"), tokens[4]);
-    LOK_ASSERT_EQUAL(std::string("tileposx=0"), tokens[5]);
-    LOK_ASSERT_EQUAL(std::string("tileposy=0"), tokens[6]);
-    LOK_ASSERT_EQUAL(std::string("tilewidth=3840"), tokens[7]);
-    LOK_ASSERT_EQUAL(std::string("tileheight=3840"), tokens[8]);
-    LOK_ASSERT_EQUAL(std::string("ver=-1"), tokens[9]);
-
-    // With custom delimiters
-    tokens = Util::tokenize(std::string("ABC:DEF"), ':');
-    LOK_ASSERT_EQUAL(std::string("ABC"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("DEF"), tokens[1]);
-
-    tokens = Util::tokenize(std::string("ABC,DEF,XYZ"), ',');
-    LOK_ASSERT_EQUAL(std::string("ABC"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("DEF"), tokens[1]);
-    LOK_ASSERT_EQUAL(std::string("XYZ"), tokens[2]);
-
-    static const std::string URI
-        = "/cool/"
-          "http%3A%2F%2Flocalhost%2Fnextcloud%2Findex.php%2Fapps%2Frichdocuments%2Fwopi%2Ffiles%"
-          "2F593_ocqiesh0cngs%3Faccess_token%3DMN0KXXDv9GJ1wCCLnQcjVQT2T7WrfYpA%26access_token_ttl%"
-          "3D0%26reuse_cookies%3Doc_sessionPassphrase%"
-          "253D8nFRqycbs7bP97yxCuJviBbVKdCXmuiXp6ZYH0DfUoy5UZDCTQgLwluvbgRbKrdKodJteG3uNE19KNUAoE5t"
-          "ypf4oBGwJdFY%25252F5W9RNST8wEHWkUVIjZy7vmY0ZX38PlS%253Anc_sameSiteCookielax%253Dtrue%"
-          "253Anc_sameSiteCookiestrict%253Dtrue%253Aocqiesh0cngs%253Dr5ujg4tpvgu9paaf5bguiokgjl%"
-          "253AXCookieName%253DXCookieValue%253ASuperCookieName%253DBAZINGA/"
-          "ws?WOPISrc=http%3A%2F%2Flocalhost%2Fnextcloud%2Findex.php%2Fapps%2Frichdocuments%2Fwopi%"
-          "2Ffiles%2F593_ocqiesh0cngs&compat=/ws/b26112ab1b6f2ed98ce1329f0f344791/close/31";
-
-    tokens = Util::tokenize(URI, '/');
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(7), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("31"), tokens[6]);
-
-    // Integer lists.
-    std::vector<int> ints;
-
-    ints = COOLProtocol::tokenizeInts(std::string("-1"));
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), ints.size());
-    LOK_ASSERT_EQUAL(-1, ints[0]);
-
-    ints = COOLProtocol::tokenizeInts(std::string("1,2,3,4"));
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(4), ints.size());
-    LOK_ASSERT_EQUAL(1, ints[0]);
-    LOK_ASSERT_EQUAL(2, ints[1]);
-    LOK_ASSERT_EQUAL(3, ints[2]);
-    LOK_ASSERT_EQUAL(4, ints[3]);
-
-    ints = COOLProtocol::tokenizeInts("");
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), ints.size());
-
-    ints = COOLProtocol::tokenizeInts(std::string(",,,"));
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), ints.size());
-}
-
-void WhiteBoxTests::testTokenizerTokenizeAnyOf()
-{
-    StringVector tokens;
-    const char delimiters[] = "\n\r"; // any of these delimits; and we trim whitespace
-
-    tokens = Util::tokenizeAnyOf("", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), tokens.size());
-
-    tokens = Util::tokenizeAnyOf("  ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), tokens.size());
-
-    tokens = Util::tokenizeAnyOf("A", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenizeAnyOf("  A", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenizeAnyOf("A  ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenizeAnyOf(" A ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-
-    tokens = Util::tokenizeAnyOf(" A  Z ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A  Z"), tokens[0]);
-
-    tokens = Util::tokenizeAnyOf("\n", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), tokens.size());
-
-    tokens = Util::tokenizeAnyOf("\n\r\r\n", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(0), tokens.size());
-
-    tokens = Util::tokenizeAnyOf(" A  \nZ ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(2), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("Z"), tokens[1]);
-
-    tokens = Util::tokenizeAnyOf(" A  Z\n ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A  Z"), tokens[0]);
-
-    tokens = Util::tokenizeAnyOf(" A  Z  \n\r\r\n ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(1), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A  Z"), tokens[0]);
-
-    tokens = Util::tokenizeAnyOf(" A  \n\r\r\n  \r  \n  Z  \n ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(2), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("Z"), tokens[1]);
-
-    tokens = Util::tokenizeAnyOf("  \r A  \n  \r  \n  Z  \n ", delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(2), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("Z"), tokens[1]);
-
-    tokens = Util::tokenizeAnyOf(std::string("A\rB\nC\n\rD\r\nE\r\rF\n\nG\r\r\n\nH"),
-                                 delimiters);
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(8), tokens.size());
-    LOK_ASSERT_EQUAL(std::string("A"), tokens[0]);
-    LOK_ASSERT_EQUAL(std::string("B"), tokens[1]);
-    LOK_ASSERT_EQUAL(std::string("C"), tokens[2]);
-    LOK_ASSERT_EQUAL(std::string("D"), tokens[3]);
-    LOK_ASSERT_EQUAL(std::string("E"), tokens[4]);
-    LOK_ASSERT_EQUAL(std::string("F"), tokens[5]);
-    LOK_ASSERT_EQUAL(std::string("G"), tokens[6]);
-    LOK_ASSERT_EQUAL(std::string("H"), tokens[7]);
-}
-
 void WhiteBoxTests::testReplace()
 {
+    constexpr auto testname = __func__;
+
     LOK_ASSERT_EQUAL(std::string("zesz one zwo flee"), Util::replace("test one two flee", "t", "z"));
     LOK_ASSERT_EQUAL(std::string("testt one two flee"), Util::replace("test one two flee", "tes", "test"));
     LOK_ASSERT_EQUAL(std::string("testest one two flee"), Util::replace("test one two flee", "tes", "testes"));
@@ -566,6 +397,8 @@ void WhiteBoxTests::testReplace()
 
 void WhiteBoxTests::testRegexListMatcher()
 {
+    constexpr auto testname = __func__;
+
     Util::RegexListMatcher matcher;
 
     matcher.allow("localhost");
@@ -606,6 +439,8 @@ void WhiteBoxTests::testRegexListMatcher()
 
 void WhiteBoxTests::testRegexListMatcher_Init()
 {
+    constexpr auto testname = __func__;
+
     Util::RegexListMatcher matcher({"localhost", "192\\..*"}, {"192\\.168\\..*"});
 
     LOK_ASSERT(matcher.match("localhost"));
@@ -741,6 +576,8 @@ void WhiteBoxTests::testTileDesc()
 
 void WhiteBoxTests::testRectanglesIntersect()
 {
+    constexpr auto testname = __func__;
+
     // these intersect
     LOK_ASSERT(TileDesc::rectanglesIntersect(1000, 1000, 2000, 1000,
                                                  2000, 1000, 2000, 1000));
@@ -764,103 +601,10 @@ void WhiteBoxTests::testRectanglesIntersect()
                                                   1000, 1000, 2000, 1000));
 }
 
-void WhiteBoxTests::testAuthorization()
-{
-    Authorization auth1(Authorization::Type::Token, "abc");
-    Poco::URI uri1("http://localhost");
-    auth1.authorizeURI(uri1);
-    LOK_ASSERT_EQUAL(std::string("http://localhost/?access_token=abc"), uri1.toString());
-    Poco::Net::HTTPRequest req1;
-    auth1.authorizeRequest(req1);
-    LOK_ASSERT_EQUAL(std::string("Bearer abc"), req1.get("Authorization"));
-
-    Authorization auth1modify(Authorization::Type::Token, "modified");
-    // still the same uri1, currently "http://localhost/?access_token=abc"
-    auth1modify.authorizeURI(uri1);
-    LOK_ASSERT_EQUAL(std::string("http://localhost/?access_token=modified"), uri1.toString());
-
-    Authorization auth2(Authorization::Type::Header, "def");
-    Poco::Net::HTTPRequest req2;
-    auth2.authorizeRequest(req2);
-    LOK_ASSERT(!req2.has("Authorization"));
-
-    Authorization auth3(Authorization::Type::Header, "Authorization: Basic huhu== ");
-    Poco::URI uri2("http://localhost");
-    auth3.authorizeURI(uri2);
-    // nothing added with the Authorization header approach
-    LOK_ASSERT_EQUAL(std::string("http://localhost"), uri2.toString());
-    Poco::Net::HTTPRequest req3;
-    auth3.authorizeRequest(req3);
-    LOK_ASSERT_EQUAL(std::string("Basic huhu=="), req3.get("Authorization"));
-
-    Authorization auth4(Authorization::Type::Header, "  Authorization: Basic blah== \n\rX-Something:   additional  ");
-    Poco::Net::HTTPRequest req4;
-    auth4.authorizeRequest(req4);
-    LOK_ASSERT_MESSAGE("Exected request to have Authorization header", req4.has("Authorization"));
-    LOK_ASSERT_EQUAL(std::string("Basic blah=="), req4.get("Authorization"));
-    LOK_ASSERT_MESSAGE("Exected request to have X-Something header", req4.has("X-Something"));
-    LOK_ASSERT_EQUAL(std::string("additional"), req4.get("X-Something"));
-
-    Authorization auth5(Authorization::Type::Header, "  Authorization: Basic huh== \n\rX-Something-More:   else  \n\r");
-    Poco::Net::HTTPRequest req5;
-    auth5.authorizeRequest(req5);
-    LOK_ASSERT_EQUAL(std::string("Basic huh=="), req5.get("Authorization"));
-    LOK_ASSERT_EQUAL(std::string("else"), req5.get("X-Something-More"));
-
-    Authorization auth6(Authorization::Type::None, "Authorization: basic huh==");
-    Poco::Net::HTTPRequest req6;
-    CPPUNIT_ASSERT_NO_THROW(auth6.authorizeRequest(req6));
-
-    {
-        const std::string WorkingDocumentURI
-            = "https://example.com:8443/rest/files/wopi/files/"
-              "8ac75551de4d89e60002?access_header=Authorization%3A%2520Bearer%25201hpoiuytrewq%"
-              "250D%250A%250D%250AX-Requested-With%3A%2520XMLHttpRequest&reuse_cookies=lang%3Den-"
-              "us%3A_xx_%3DGS1.1.%3APublicToken%"
-              "3DeyJzdWIiOiJhZG1pbiIsImV4cCI6MTU4ODkxNzc3NCwiaWF0IjoxNTg4OTE2ODc0LCJqdGkiOiI4OGZhN2"
-              "E3ZC1lMzU5LTQ2OWEtYjg3Zi02NmFhNzI0ZGFkNTcifQ%3AZNPCQ003-32383700%3De9c71c3b%"
-              "3AJSESSIONID%3Dnode019djohorurnaf1eo6f57ejhg0520.node0&permission=edit";
-
-        const std::string AuthorizationParam = "Bearer 1hpoiuytrewq";
-
-        Authorization auth(Authorization::create(WorkingDocumentURI));
-        Poco::Net::HTTPRequest req;
-        auth.authorizeRequest(req);
-        LOK_ASSERT_EQUAL(AuthorizationParam, req.get("Authorization"));
-        LOK_ASSERT_EQUAL(std::string("XMLHttpRequest"), req.get("X-Requested-With"));
-    }
-
-    {
-        const std::string URI
-            = "https://example.com:8443/rest/files/wopi/files/"
-              "24e3f0a17230cca5017230fb6861000c?access_header=Authorization%3A%20Bearer%"
-              "201hpoiuytrewq%0D%0A%0D%0AX-Requested-With%3A%20XMLHttpRequest";
-
-        const std::string AuthorizationParam = "Bearer 1hpoiuytrewq";
-
-        Authorization auth7(Authorization::create(URI));
-        Poco::Net::HTTPRequest req7;
-        auth7.authorizeRequest(req7);
-        LOK_ASSERT_EQUAL(AuthorizationParam, req7.get("Authorization"));
-        LOK_ASSERT_EQUAL(std::string("XMLHttpRequest"), req7.get("X-Requested-With"));
-    }
-
-    {
-        const std::string URI
-            = "https://example.com:8443/rest/files/wopi/files/"
-              "8ac75551de4d89e60002?reuse_cookies=lang%3Den-us%3A_xx_%3DGS1.1.%3APublicToken%"
-              "3DeyJzdWIiOiJhZG1pbiIsImV4cCI6MTU4ODkxNzc3NCwiaWF0IjoxNTg4OTE2ODc0LCJqdGkiOiI4OGZhN2"
-              "E3ZC1lMzU5LTQ2OWEtYjg3Zi02NmFhNzI0ZGFkNTcifQ%3AZNPCQ003-32383700%3De9c71c3b%"
-              "3AJSESSIONID%3Dnode019djohorurnaf1eo6f57ejhg0520.node0&permission=edit";
-
-        Authorization auth7(Authorization::create(URI));
-        Poco::Net::HTTPRequest req;
-        auth7.authorizeRequest(req);
-    }
-}
-
 void WhiteBoxTests::testJson()
 {
+    constexpr auto testname = __func__;
+
     static const char* testString =
          "{\"BaseFileName\":\"SomeFile.pdf\",\"DisableCopy\":true,\"DisableExport\":true,\"DisableInactiveMessages\":true,\"DisablePrint\":true,\"EnableOwnerTermination\":true,\"HideExportOption\":true,\"HidePrintOption\":true,\"OwnerId\":\"id@owner.com\",\"PostMessageOrigin\":\"*\",\"Size\":193551,\"UserCanWrite\":true,\"UserFriendlyName\":\"Owning user\",\"UserId\":\"user@user.com\",\"WatermarkText\":null}";
 
@@ -893,6 +637,8 @@ void WhiteBoxTests::testJson()
 
 void WhiteBoxTests::testAnonymization()
 {
+    constexpr auto testname = __func__;
+
     static const std::string name = "some name with space";
     static const std::string filename = "filename.ext";
     static const std::string filenameTestx = "testx (6).odt";
@@ -957,8 +703,10 @@ void WhiteBoxTests::testAnonymization()
     LOK_ASSERT_EQUAL(urlAnonymized3, Util::anonymizeUrl(fileUrl, nAnonymizationSalt));
 }
 
-void WhiteBoxTests::testTime()
+void WhiteBoxTests::testIso8601Time()
 {
+    constexpr auto testname = __func__;
+
     std::ostringstream oss;
 
     std::chrono::system_clock::time_point t(std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::nanoseconds(1567444337874777375)));
@@ -1040,34 +788,57 @@ void WhiteBoxTests::testTime()
     }
 }
 
+void WhiteBoxTests::testClockAsString()
+{
+    // This test depends on locale and timezone.
+    // It is only here to test changes to these functions,
+    // but the tests can't be run elsewhere.
+    // I left them here to avoid recreating them when needed.
+#if 0
+    constexpr auto testname = __func__;
+
+    const auto steady_tp = std::chrono::steady_clock::time_point(
+        std::chrono::steady_clock::duration(std::chrono::nanoseconds(295708311764285)));
+    LOK_ASSERT_EQUAL(std::string("Sat Feb 12 18:58.889 2022"),
+                     Util::getSteadyClockAsString(steady_tp));
+
+    const auto sys_tp = std::chrono::system_clock::time_point(
+        std::chrono::system_clock::duration(std::chrono::nanoseconds(1644764467739980124)));
+    LOK_ASSERT_EQUAL(std::string("Sat Feb 12 18:58.889 2022"),
+                     Util::getSystemClockAsString(sys_tp));
+#endif
+}
+
 void WhiteBoxTests::testBufferClass()
 {
+    constexpr auto testname = __func__;
+
     Buffer buf;
-    CPPUNIT_ASSERT_EQUAL(0UL, buf.size());
-    CPPUNIT_ASSERT_EQUAL(true, buf.empty());
-    CPPUNIT_ASSERT(buf.getBlock() == nullptr);
+    LOK_ASSERT_EQUAL(0UL, buf.size());
+    LOK_ASSERT_EQUAL(true, buf.empty());
+    LOK_ASSERT(buf.getBlock() == nullptr);
     buf.eraseFirst(buf.size());
-    CPPUNIT_ASSERT_EQUAL(0UL, buf.size());
-    CPPUNIT_ASSERT_EQUAL(true, buf.empty());
+    LOK_ASSERT_EQUAL(0UL, buf.size());
+    LOK_ASSERT_EQUAL(true, buf.empty());
 
     // Small data.
     const char data[] = "abcdefghijklmnop";
     buf.append(data, sizeof(data));
 
-    CPPUNIT_ASSERT_EQUAL(static_cast<std::size_t>(sizeof(data)), buf.size());
-    CPPUNIT_ASSERT_EQUAL(false, buf.empty());
-    CPPUNIT_ASSERT(buf.getBlock() != nullptr);
-    CPPUNIT_ASSERT_EQUAL(0, memcmp(buf.getBlock(), data, buf.size()));
+    LOK_ASSERT_EQUAL(static_cast<std::size_t>(sizeof(data)), buf.size());
+    LOK_ASSERT_EQUAL(false, buf.empty());
+    LOK_ASSERT(buf.getBlock() != nullptr);
+    LOK_ASSERT_EQUAL(0, memcmp(buf.getBlock(), data, buf.size()));
 
     // Erase one char at a time.
     for (std::size_t i = buf.size(); i > 0; --i)
     {
         buf.eraseFirst(1);
-        CPPUNIT_ASSERT_EQUAL(i - 1, buf.size());
-        CPPUNIT_ASSERT_EQUAL(i == 1, buf.empty()); // Not empty until the last element.
-        CPPUNIT_ASSERT_EQUAL(buf.getBlock() != nullptr, !buf.empty());
+        LOK_ASSERT_EQUAL(i - 1, buf.size());
+        LOK_ASSERT_EQUAL(i == 1, buf.empty()); // Not empty until the last element.
+        LOK_ASSERT_EQUAL(buf.getBlock() != nullptr, !buf.empty());
         if (!buf.empty())
-            CPPUNIT_ASSERT_EQUAL(0, memcmp(buf.getBlock(), data + (sizeof(data) - i) + 1, buf.size()));
+            LOK_ASSERT_EQUAL(0, memcmp(buf.getBlock(), data + (sizeof(data) - i) + 1, buf.size()));
     }
 
     // Large data.
@@ -1079,890 +850,78 @@ void WhiteBoxTests::testBufferClass()
 
         const std::vector<char> dataLarge(2 * BlockSize, 'a' + i); // Block of a single char.
         buf.append(dataLarge.data(), dataLarge.size());
-        CPPUNIT_ASSERT_EQUAL(prevSize + (2 * BlockSize), buf.size());
+        LOK_ASSERT_EQUAL(prevSize + (2 * BlockSize), buf.size());
 
         // Remove half.
         buf.eraseFirst(BlockSize);
-        CPPUNIT_ASSERT_EQUAL(prevSize + BlockSize, buf.size());
-        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf.getBlock() + prevSize, dataLarge.data(), BlockSize));
+        LOK_ASSERT_EQUAL(prevSize + BlockSize, buf.size());
+        LOK_ASSERT_EQUAL(0, memcmp(buf.getBlock() + prevSize, dataLarge.data(), BlockSize));
     }
 
-    CPPUNIT_ASSERT_EQUAL(BlockSize * BlockCount, buf.size());
-    CPPUNIT_ASSERT_EQUAL(false, buf.empty());
+    LOK_ASSERT_EQUAL(BlockSize * BlockCount, buf.size());
+    LOK_ASSERT_EQUAL(false, buf.empty());
 
     // Remove each block of data and test.
     for (std::size_t i = BlockCount / 2; i < BlockCount; ++i) // We removed half above.
     {
-        CPPUNIT_ASSERT_EQUAL(false, buf.empty());
-        CPPUNIT_ASSERT_EQUAL(BlockSize * 2 * (BlockCount - i), buf.size());
+        LOK_ASSERT_EQUAL(false, buf.empty());
+        LOK_ASSERT_EQUAL(BlockSize * 2 * (BlockCount - i), buf.size());
 
         const std::vector<char> dataLarge(BlockSize * 2, 'a' + i); // Block of a single char.
-        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf.getBlock(), dataLarge.data(), BlockSize));
+        LOK_ASSERT_EQUAL(0, memcmp(buf.getBlock(), dataLarge.data(), BlockSize));
 
         buf.eraseFirst(BlockSize * 2);
     }
 
-    CPPUNIT_ASSERT_EQUAL(0UL, buf.size());
-    CPPUNIT_ASSERT_EQUAL(true, buf.empty());
+    LOK_ASSERT_EQUAL(0UL, buf.size());
+    LOK_ASSERT_EQUAL(true, buf.empty());
 
     // Very large data.
     const std::vector<char> dataLarge(20 * BlockSize, 'x'); // Block of a single char.
     buf.append(dataLarge.data(), dataLarge.size());
-    CPPUNIT_ASSERT_EQUAL(dataLarge.size(), buf.size());
+    LOK_ASSERT_EQUAL(dataLarge.size(), buf.size());
 
     buf.append(data, sizeof(data)); // Add small data.
-    CPPUNIT_ASSERT_EQUAL(dataLarge.size() + sizeof(data), buf.size());
+    LOK_ASSERT_EQUAL(dataLarge.size() + sizeof(data), buf.size());
 
     buf.eraseFirst(dataLarge.size()); // Remove large data.
-    CPPUNIT_ASSERT_EQUAL(sizeof(data), buf.size());
-    CPPUNIT_ASSERT_EQUAL(false, buf.empty());
-    CPPUNIT_ASSERT_EQUAL(0, memcmp(buf.getBlock(), data, buf.size()));
+    LOK_ASSERT_EQUAL(sizeof(data), buf.size());
+    LOK_ASSERT_EQUAL(false, buf.empty());
+    LOK_ASSERT_EQUAL(0, memcmp(buf.getBlock(), data, buf.size()));
 
     buf.eraseFirst(buf.size()); // Remove all.
-    CPPUNIT_ASSERT_EQUAL(0UL, buf.size());
-    CPPUNIT_ASSERT_EQUAL(true, buf.empty());
+    LOK_ASSERT_EQUAL(0UL, buf.size());
+    LOK_ASSERT_EQUAL(true, buf.empty());
 }
 
-void WhiteBoxTests::testStringVector()
-{
-    // Test push_back() and getParam().
-    StringVector vector;
-    vector.push_back("a");
-    vector.push_back("b");
-    CPPUNIT_ASSERT_EQUAL(static_cast<std::size_t>(2), vector.size());
-    auto it = vector.begin();
-    CPPUNIT_ASSERT_EQUAL(std::string("a"), vector.getParam(*it));
-    ++it;
-    CPPUNIT_ASSERT_EQUAL(std::string("b"), vector.getParam(*it));
-
-    // Test cat().
-    CPPUNIT_ASSERT_EQUAL(std::string("a b"), vector.cat(" ", 0));
-    CPPUNIT_ASSERT_EQUAL(std::string("a b"), vector.cat(' ', 0));
-    CPPUNIT_ASSERT_EQUAL(std::string("a*b"), vector.cat('*', 0));
-    CPPUNIT_ASSERT_EQUAL(std::string("a blah mlah b"), vector.cat(" blah mlah ", 0));
-    CPPUNIT_ASSERT_EQUAL(std::string(), vector.cat(" ", 3));
-    CPPUNIT_ASSERT_EQUAL(std::string(), vector.cat(" ", 42));
-
-    // Test operator []().
-    CPPUNIT_ASSERT_EQUAL(std::string("a"), vector[0]);
-    CPPUNIT_ASSERT_EQUAL(std::string(""), vector[2]);
-
-    // Test equals().
-    CPPUNIT_ASSERT(vector.equals(0, "a"));
-    CPPUNIT_ASSERT(!vector.equals(0, "A"));
-    CPPUNIT_ASSERT(vector.equals(1, "b"));
-    CPPUNIT_ASSERT(!vector.equals(1, "B"));
-    CPPUNIT_ASSERT(!vector.equals(2, ""));
-
-    // Test equals(), StringVector argument version.
-    StringVector vector2;
-    vector2.push_back("a");
-    vector2.push_back("B");
-
-    CPPUNIT_ASSERT(vector.equals(0, vector2, 0));
-    CPPUNIT_ASSERT(!vector.equals(0, vector2, 1));
-
-    // Test startsWith().
-    StringVector vector3;
-    vector3.push_back("hello, world");
-    vector3.push_back("goodbye, world");
-
-    CPPUNIT_ASSERT(vector3.startsWith(0, "hello"));
-    CPPUNIT_ASSERT(vector3.startsWith(0, "hello, world"));
-    CPPUNIT_ASSERT(!vector3.startsWith(0, "hello, world!"));
-    CPPUNIT_ASSERT(!vector3.startsWith(0, "hello, world! super long text"));
-    CPPUNIT_ASSERT(vector3.startsWith(1, "goodbye"));
-    CPPUNIT_ASSERT(!vector3.startsWith(1, "hello"));
-
-    // Test startsWith(), StringToken argument version
-    StringToken hello = *vector3.begin();
-    StringToken goodbye = *std::next(vector3.begin());
-    StringToken unrelated(50, 10); // out of vector3 range
-
-    CPPUNIT_ASSERT(vector3.startsWith(hello, "hello"));
-    CPPUNIT_ASSERT(vector3.startsWith(hello, "hello, world"));
-    CPPUNIT_ASSERT(!vector3.startsWith(hello, "hello, world!"));
-    CPPUNIT_ASSERT(!vector3.startsWith(hello, "hello, world! super long text"));
-    CPPUNIT_ASSERT(vector3.startsWith(goodbye, "goodbye"));
-    CPPUNIT_ASSERT(!vector3.startsWith(goodbye, "hello"));
-    CPPUNIT_ASSERT(!vector3.startsWith(unrelated, "hello"));
-
-    {
-        StringVector tokens;
-        tokens.push_back("a=1");
-        uint32_t value{};
-        CPPUNIT_ASSERT(tokens.getUInt32(0, "a", value));
-        CPPUNIT_ASSERT_EQUAL(static_cast<uint32_t>(1), value);
-
-        // Prefix does not match.
-        CPPUNIT_ASSERT(!tokens.getUInt32(0, "b", value));
-
-        // Index is out of bounds.
-        CPPUNIT_ASSERT(!tokens.getUInt32(1, "a", value));
-
-        // Expected key is prefix of actual key.
-        tokens.push_back("bb=1");
-        CPPUNIT_ASSERT(!tokens.getUInt32(1, "b", value));
-
-        // Actual key is prefix of expected key.
-        tokens.push_back("c=1");
-        CPPUNIT_ASSERT(!tokens.getUInt32(1, "cc", value));
-    }
-
-    {
-        StringVector tokens;
-        tokens.push_back("a=1");
-        std::string name;
-        int value{};
-        CPPUNIT_ASSERT(tokens.getNameIntegerPair(0, name, value));
-        CPPUNIT_ASSERT_EQUAL(std::string("a"), name);
-        CPPUNIT_ASSERT_EQUAL(1, value);
-
-        tokens.push_back("aa=1");
-        CPPUNIT_ASSERT(tokens.getNameIntegerPair(1, name, value));
-        CPPUNIT_ASSERT_EQUAL(std::string("aa"), name);
-        CPPUNIT_ASSERT_EQUAL(1, value);
-
-        tokens.push_back("a=11");
-        CPPUNIT_ASSERT(tokens.getNameIntegerPair(2, name, value));
-        CPPUNIT_ASSERT_EQUAL(std::string("a"), name);
-        CPPUNIT_ASSERT_EQUAL(11, value);
-    }
-}
 
 void WhiteBoxTests::testHexify()
 {
+    constexpr auto testname = __func__;
+
     const std::string s1 = "some ascii text with !@#$%^&*()_+/-\\|";
     const auto hex = Util::dataToHexString(s1, 0, s1.size());
     std::string decoded;
-    CPPUNIT_ASSERT(Util::dataFromHexString(hex, decoded));
-    CPPUNIT_ASSERT_EQUAL(s1, decoded);
+    LOK_ASSERT(Util::dataFromHexString(hex, decoded));
+    LOK_ASSERT_EQUAL(s1, decoded);
 
     for (std::size_t randStrLen = 1; randStrLen < 129; ++randStrLen)
     {
         const auto s2 = Util::rng::getBytes(randStrLen);
-        CPPUNIT_ASSERT_EQUAL(randStrLen, s2.size());
+        LOK_ASSERT_EQUAL(randStrLen, s2.size());
         const auto hex2 = Util::dataToHexString(s2, 0, s2.size());
-        CPPUNIT_ASSERT_EQUAL(randStrLen * 2, hex2.size());
+        LOK_ASSERT_EQUAL(randStrLen * 2, hex2.size());
         std::vector<char> decoded2;
-        CPPUNIT_ASSERT(Util::dataFromHexString(hex2, decoded2));
-        CPPUNIT_ASSERT_EQUAL(randStrLen, decoded2.size());
-        CPPUNIT_ASSERT_EQUAL(s2, decoded2);
-    }
-}
-
-void WhiteBoxTests::testRequestDetails_DownloadURI()
-{
-    static const std::string Root = "localhost:9980";
-
-    {
-        static const std::string URI = "/browser/49c225146/src/map/Clipboard.js";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-
-        RequestDetails details(request, "");
-
-        // LOK_ASSERT_EQUAL(URI, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(5), details.size());
-        LOK_ASSERT_EQUAL(std::string("browser"), details[0]);
-        LOK_ASSERT_EQUAL(std::string("browser"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "browser"));
-        LOK_ASSERT(details.equals(0, "browser"));
-        LOK_ASSERT_EQUAL(std::string("49c225146"), details[1]);
-        LOK_ASSERT_EQUAL(std::string("src"), details[2]);
-        LOK_ASSERT_EQUAL(std::string("map"), details[3]);
-        LOK_ASSERT_EQUAL(std::string("Clipboard.js"), details[4]);
-    }
-
-    {
-        static const std::string URI = "/browser/49c225146/select2.css";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-
-        RequestDetails details(request, "");
-
-        // LOK_ASSERT_EQUAL(URI, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(3), details.size());
-        LOK_ASSERT_EQUAL(std::string("browser"), details[0]);
-        LOK_ASSERT_EQUAL(std::string("browser"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "browser"));
-        LOK_ASSERT(details.equals(0, "browser"));
-        LOK_ASSERT_EQUAL(std::string("49c225146"), details[1]);
-        LOK_ASSERT_EQUAL(std::string("select2.css"), details[2]);
-    }
-}
-
-void WhiteBoxTests::testRequestDetails_coolURI()
-{
-    static const std::string Root = "localhost:9980";
-
-    static const std::string URI
-        = "/browser/49c225146/"
-          "cool.html?WOPISrc=http%3A%2F%2Flocalhost%2Fnextcloud%2Findex.php%2Fapps%"
-          "2Frichdocuments%2Fwopi%2Ffiles%2F593_ocqiesh0cngs&title=empty.odt&lang=en-us&"
-          "closebutton=1&revisionhistory=1";
-
-    Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                   Poco::Net::HTTPMessage::HTTP_1_1);
-    request.setHost(Root);
-
-    RequestDetails details(request, "");
-
-    const std::string wopiSrc
-        = "http://localhost/nextcloud/index.php/apps/richdocuments/wopi/files/593_ocqiesh0cngs";
-
-    LOK_ASSERT_EQUAL(wopiSrc, details.getField(RequestDetails::Field::WOPISrc));
-
-    LOK_ASSERT_EQUAL(static_cast<std::size_t>(4), details.size());
-    LOK_ASSERT_EQUAL(std::string("browser"), details[0]);
-    LOK_ASSERT_EQUAL(std::string("browser"), details.getField(RequestDetails::Field::Type));
-    LOK_ASSERT(details.equals(RequestDetails::Field::Type, "browser"));
-    LOK_ASSERT(details.equals(0, "browser"));
-    LOK_ASSERT_EQUAL(std::string("49c225146"), details[1]);
-    LOK_ASSERT_EQUAL(std::string("cool.html"), details[2]);
-    LOK_ASSERT_EQUAL(std::string("WOPISrc=http%3A%2F%2Flocalhost%2Fnextcloud%2Findex.php%"
-                                 "2Fapps%2Frichdocuments%2Fwopi%2Ffiles%2F593_ocqiesh0cngs&"
-                                 "title=empty.odt&lang=en-us&closebutton=1&revisionhistory=1"),
-                     details[3]);
-}
-
-void WhiteBoxTests::testRequestDetails_local()
-{
-    static const std::string Root = "localhost:9980";
-
-    static const std::string ProxyPrefix
-        = "http://localhost/nextcloud/apps/richdocuments/proxy.php?req=";
-
-    {
-        static const std::string URI = "/cool/"
-                                       "file%3A%2F%2F%2Fhome%2Fash%2Fprj%2Flo%2Fonline%2Ftest%"
-                                       "2Fdata%2Fhello-world.odt/ws/open/open/0";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        const std::string docUri = "file:///home/ash/prj/lo/online/test/data/hello-world.odt";
-
-        LOK_ASSERT_EQUAL(docUri, details.getLegacyDocumentURI());
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(6), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(
-            std::string(
-                "file%3A%2F%2F%2Fhome%2Fash%2Fprj%2Flo%2Fonline%2Ftest%2Fdata%2Fhello-world.odt"),
-            details[1]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[2]);
-        LOK_ASSERT_EQUAL(std::string("open"), details[3]);
-        LOK_ASSERT_EQUAL(std::string("open"), details[4]);
-        LOK_ASSERT_EQUAL(std::string("0"), details[5]);
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string("open"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, "open"));
-        LOK_ASSERT_EQUAL(std::string("open"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, "open"));
-        LOK_ASSERT_EQUAL(std::string("0"), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, "0"));
-    }
-
-    {
-        // Blank entries are skipped.
-        static const std::string URI = "/cool/"
-                                       "file%3A%2F%2F%2Fhome%2Fash%2Fprj%2Flo%2Fonline%2Ftest%"
-                                       "2Fdata%2Fhello-world.odt/ws//write/2";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        const std::string docUri = "file:///home/ash/prj/lo/online/test/data/hello-world.odt";
-
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(5), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(
-            std::string(
-                "file%3A%2F%2F%2Fhome%2Fash%2Fprj%2Flo%2Fonline%2Ftest%2Fdata%2Fhello-world.odt"),
-            details[1]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[2]);
-        LOK_ASSERT_EQUAL(std::string("write"), details[3]); // SessionId, since the real SessionId is blank.
-        LOK_ASSERT_EQUAL(std::string("2"), details[4]); // Command, since SessionId was blank.
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string("write"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, "write"));
-        LOK_ASSERT_EQUAL(std::string("2"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, "2"));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, ""));
-    }
-
-    {
-        // Apparently, the initial / can be missing -- all the tests do that.
-        static const std::string URI = "cool/"
-                                       "file%3A%2F%2F%2Fhome%2Fash%2Fprj%2Flo%2Fonline%2Ftest%"
-                                       "2Fdata%2Fhello-world.odt/ws//write/2";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        const std::string docUri = "file:///home/ash/prj/lo/online/test/data/hello-world.odt";
-
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(5), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(
-            std::string(
-                "file%3A%2F%2F%2Fhome%2Fash%2Fprj%2Flo%2Fonline%2Ftest%2Fdata%2Fhello-world.odt"),
-            details[1]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[2]);
-        LOK_ASSERT_EQUAL(std::string("write"), details[3]); // SessionId, since the real SessionId is blank.
-        LOK_ASSERT_EQUAL(std::string("2"), details[4]); // Command, since SessionId was blank.
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string("write"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, "write"));
-        LOK_ASSERT_EQUAL(std::string("2"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, "2"));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, ""));
-    }
-}
-
-void WhiteBoxTests::testRequestDetails_local_hexified()
-{
-    static const std::string Root = "localhost:9980";
-
-    static const std::string ProxyPrefix
-        = "http://localhost/nextcloud/apps/richdocuments/proxy.php?req=";
-
-    static const std::string docUri = "file:///home/ash/prj/lo/online/test/data/hello-world.odt";
-    static const std::string fileUrl =
-        "file%3A%2F%2F%2Fhome%2Fash%2Fprj%2Flo%2Fonline%2Ftest%2Fdata%2Fhello-world.odt";
-
-    const std::string fileUrlHex = "0x" + Util::dataToHexString(fileUrl, 0, fileUrl.size());
-
-    {
-        const std::string URI = "/cool/" + fileUrlHex + "/ws/open/open/0";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        LOK_ASSERT_EQUAL(docUri, details.getLegacyDocumentURI());
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(6), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(fileUrl, details[1]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[2]);
-        LOK_ASSERT_EQUAL(std::string("open"), details[3]);
-        LOK_ASSERT_EQUAL(std::string("open"), details[4]);
-        LOK_ASSERT_EQUAL(std::string("0"), details[5]);
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string("open"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, "open"));
-        LOK_ASSERT_EQUAL(std::string("open"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, "open"));
-        LOK_ASSERT_EQUAL(std::string("0"), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, "0"));
-    }
-
-    {
-        // Blank entries are skipped.
-        static const std::string URI = "/cool/" + fileUrlHex + "/ws//write/2";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(5), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(fileUrl, details[1]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[2]);
-        LOK_ASSERT_EQUAL(std::string("write"), details[3]); // SessionId, since the real SessionId is blank.
-        LOK_ASSERT_EQUAL(std::string("2"), details[4]); // Command, since SessionId was blank.
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string("write"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, "write"));
-        LOK_ASSERT_EQUAL(std::string("2"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, "2"));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, ""));
-    }
-
-    {
-        // Apparently, the initial / can be missing -- all the tests do that.
-        static const std::string URI = "cool/" + fileUrlHex + "/ws//write/2";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(5), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(fileUrl, details[1]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[2]);
-        LOK_ASSERT_EQUAL(std::string("write"), details[3]); // SessionId, since the real SessionId is blank.
-        LOK_ASSERT_EQUAL(std::string("2"), details[4]); // Command, since SessionId was blank.
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string("write"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, "write"));
-        LOK_ASSERT_EQUAL(std::string("2"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, "2"));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, ""));
-    }
-}
-
-void WhiteBoxTests::testRequestDetails()
-{
-    static const std::string Root = "localhost:9980";
-
-    static const std::string ProxyPrefix
-        = "http://localhost/nextcloud/apps/richdocuments/proxy.php?req=";
-
-    {
-        static const std::string URI
-            = "/cool/"
-              "http%3A%2F%2Flocalhost%2Fnextcloud%2Findex.php%2Fapps%2Frichdocuments%2Fwopi%"
-              "2Ffiles%"
-              "2F593_ocqiesh0cngs%3Faccess_token%3DMN0KXXDv9GJ1wCCLnQcjVQT2T7WrfYpA%26access_token_"
-              "ttl%"
-              "3D0%26reuse_cookies%3Doc_sessionPassphrase%"
-              "253D8nFRqycbs7bP97yxCuJviBbVKdCXmuiXp6ZYH0DfUoy5UZDCTQgLwluvbgRbKrdKodJteG3uNE19KNUA"
-              "oE5t"
-              "ypf4oBGwJdFY%25252F5W9RNST8wEHWkUVIjZy7vmY0ZX38PlS%253Anc_sameSiteCookielax%"
-              "253Dtrue%"
-              "253Anc_sameSiteCookiestrict%253Dtrue%253Aocqiesh0cngs%"
-              "253Dr5ujg4tpvgu9paaf5bguiokgjl%"
-              "253AXCookieName%253DXCookieValue%253ASuperCookieName%253DBAZINGA/"
-              "ws?WOPISrc=http%3A%2F%2Flocalhost%2Fnextcloud%2Findex.php%2Fapps%2Frichdocuments%"
-              "2Fwopi%"
-              "2Ffiles%2F593_ocqiesh0cngs&compat=/ws/b26112ab1b6f2ed98ce1329f0f344791/close/31";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        LOK_ASSERT_EQUAL(std::string("b26112ab1b6f2ed98ce1329f0f344791"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT_EQUAL(std::string("close"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT_EQUAL(std::string("31"), details.getField(RequestDetails::Field::Serial));
-
-        const std::string docUri_WopiSrc
-            = "http://localhost/nextcloud/index.php/apps/richdocuments/wopi/files/"
-              "593_ocqiesh0cngs?access_token=MN0KXXDv9GJ1wCCLnQcjVQT2T7WrfYpA&access_token_ttl=0&"
-              "reuse_"
-              "cookies=oc_sessionPassphrase%"
-              "3D8nFRqycbs7bP97yxCuJviBbVKdCXmuiXp6ZYH0DfUoy5UZDCTQgLwluvbgRbKrdKodJteG3uNE19KNUAoE"
-              "5typ"
-              "f4oBGwJdFY%252F5W9RNST8wEHWkUVIjZy7vmY0ZX38PlS%3Anc_sameSiteCookielax%3Dtrue%3Anc_"
-              "sameSiteCookiestrict%3Dtrue%3Aocqiesh0cngs%3Dr5ujg4tpvgu9paaf5bguiokgjl%"
-              "3AXCookieName%"
-              "3DXCookieValue%3ASuperCookieName%3DBAZINGA/ws?WOPISrc=http://localhost/nextcloud/"
-              "index.php/apps/richdocuments/wopi/files/593_ocqiesh0cngs&compat=";
-
-        LOK_ASSERT_EQUAL(docUri_WopiSrc, details.getLegacyDocumentURI());
-
-        const std::string docUri
-            = "http://localhost/nextcloud/index.php/apps/richdocuments/wopi/files/"
-              "593_ocqiesh0cngs?access_token=MN0KXXDv9GJ1wCCLnQcjVQT2T7WrfYpA&access_token_ttl=0&"
-              "reuse_"
-              "cookies=oc_sessionPassphrase%"
-              "3D8nFRqycbs7bP97yxCuJviBbVKdCXmuiXp6ZYH0DfUoy5UZDCTQgLwluvbgRbKrdKodJteG3uNE19KNUAoE"
-              "5typ"
-              "f4oBGwJdFY%252F5W9RNST8wEHWkUVIjZy7vmY0ZX38PlS%3Anc_sameSiteCookielax%3Dtrue%3Anc_"
-              "sameSiteCookiestrict%3Dtrue%3Aocqiesh0cngs%3Dr5ujg4tpvgu9paaf5bguiokgjl%"
-              "3AXCookieName%"
-              "3DXCookieValue%3ASuperCookieName%3DBAZINGA";
-
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        const std::string wopiSrc
-            = "http://localhost/nextcloud/index.php/apps/richdocuments/wopi/files/593_ocqiesh0cngs";
-
-        LOK_ASSERT_EQUAL(wopiSrc, details.getField(RequestDetails::Field::WOPISrc));
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(8), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(
-            std::string(
-                "http%3A%2F%2Flocalhost%2Fnextcloud%2Findex.php%2Fapps%2Frichdocuments%2Fwopi%"
-                "2Ffiles%2F593_ocqiesh0cngs%3Faccess_token%3DMN0KXXDv9GJ1wCCLnQcjVQT2T7WrfYpA%"
-                "26access_token_ttl%3D0%26reuse_cookies%3Doc_sessionPassphrase%"
-                "253D8nFRqycbs7bP97yxCuJviBbVKdCXmuiXp6ZYH0DfUoy5UZDCTQgLwluvbgRbKrdKodJteG3uNE"
-                "19KNUAoE5typf4oBGwJdFY%25252F5W9RNST8wEHWkUVIjZy7vmY0ZX38PlS%253Anc_"
-                "sameSiteCookielax%253Dtrue%253Anc_sameSiteCookiestrict%253Dtrue%"
-                "253Aocqiesh0cngs%253Dr5ujg4tpvgu9paaf5bguiokgjl%253AXCookieName%"
-                "253DXCookieValue%253ASuperCookieName%253DBAZINGA"),
-            details[1]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[2]);
-        LOK_ASSERT_EQUAL(
-            std::string("WOPISrc=http%3A%2F%2Flocalhost%2Fnextcloud%2Findex.php%2Fapps%"
-                        "2Frichdocuments%2Fwopi%2Ffiles%2F593_ocqiesh0cngs&compat="),
-            details[3]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[4]);
-        LOK_ASSERT_EQUAL(std::string("b26112ab1b6f2ed98ce1329f0f344791"), details[5]);
-        LOK_ASSERT_EQUAL(std::string("close"), details[6]);
-        LOK_ASSERT_EQUAL(std::string("31"), details[7]);
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string("b26112ab1b6f2ed98ce1329f0f344791"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, "b26112ab1b6f2ed98ce1329f0f344791"));
-        LOK_ASSERT_EQUAL(std::string("close"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, "close"));
-        LOK_ASSERT_EQUAL(std::string("31"), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, "31"));
-    }
-
-    {
-        static const std::string URI
-            = "/cool/"
-              "http%3A%2F%2Flocalhost%2Fowncloud%2Findex.php%2Fapps%2Frichdocuments%2Fwopi%2Ffiles%"
-              "2F165_ocgdpzbkm39u%3Faccess_token%3DODhIXdJdbsVYQoKKCuaYofyzrovxD3MQ%26access_token_"
-              "ttl%"
-              "3D0%26reuse_cookies%3DXCookieName%253DXCookieValue%253ASuperCookieName%253DBAZINGA/"
-              "ws?WOPISrc=http%3A%2F%2Flocalhost%2Fowncloud%2Findex.php%2Fapps%2Frichdocuments%"
-              "2Fwopi%"
-              "2Ffiles%2F165_ocgdpzbkm39u&compat=/ws/1c99a7bcdbf3209782d7eb38512e6564/write/2";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        const std::string docUri_WopiSrc
-            = "http://localhost/owncloud/index.php/apps/richdocuments/wopi/files/"
-              "165_ocgdpzbkm39u?access_token=ODhIXdJdbsVYQoKKCuaYofyzrovxD3MQ&access_token_ttl=0&"
-              "reuse_cookies=XCookieName%3DXCookieValue%3ASuperCookieName%3DBAZINGA/"
-              "ws?WOPISrc=http://localhost/owncloud/index.php/apps/richdocuments/wopi/files/"
-              "165_ocgdpzbkm39u&compat=";
-
-        LOK_ASSERT_EQUAL(docUri_WopiSrc, details.getLegacyDocumentURI());
-
-        const std::string docUri
-            = "http://localhost/owncloud/index.php/apps/richdocuments/wopi/files/"
-              "165_ocgdpzbkm39u?access_token=ODhIXdJdbsVYQoKKCuaYofyzrovxD3MQ&access_token_ttl=0&"
-              "reuse_cookies=XCookieName%3DXCookieValue%3ASuperCookieName%3DBAZINGA";
-
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        const std::string wopiSrc
-            = "http://localhost/owncloud/index.php/apps/richdocuments/wopi/files/"
-              "165_ocgdpzbkm39u";
-
-        LOK_ASSERT_EQUAL(wopiSrc, details.getField(RequestDetails::Field::WOPISrc));
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(8), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(
-            std::string("http%3A%2F%2Flocalhost%2Fowncloud%2Findex.php%2Fapps%2Frichdocuments%"
-                        "2Fwopi%2Ffiles%2F165_ocgdpzbkm39u%3Faccess_token%"
-                        "3DODhIXdJdbsVYQoKKCuaYofyzrovxD3MQ%26access_token_ttl%3D0%26reuse_cookies%"
-                        "3DXCookieName%253DXCookieValue%253ASuperCookieName%253DBAZINGA"),
-            details[1]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[2]);
-        LOK_ASSERT_EQUAL(
-            std::string("WOPISrc=http%3A%2F%2Flocalhost%2Fowncloud%2Findex.php%2Fapps%"
-                        "2Frichdocuments%2Fwopi%2Ffiles%2F165_ocgdpzbkm39u&compat="),
-            details[3]);
-        LOK_ASSERT_EQUAL(std::string("ws"), details[4]);
-        LOK_ASSERT_EQUAL(std::string("1c99a7bcdbf3209782d7eb38512e6564"), details[5]);
-        LOK_ASSERT_EQUAL(std::string("write"), details[6]);
-        LOK_ASSERT_EQUAL(std::string("2"), details[7]);
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string("1c99a7bcdbf3209782d7eb38512e6564"), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, "1c99a7bcdbf3209782d7eb38512e6564"));
-        LOK_ASSERT_EQUAL(std::string("write"), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, "write"));
-        LOK_ASSERT_EQUAL(std::string("2"), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, "2"));
-    }
-
-    {
-        static const std::string URI
-            = "/cool/%2Ftmp%2Fslideshow_b8c3225b_setclientpart.odp/Ar3M1X89mVaryYkh/"
-              "UjaCGP4cYHlU6TvUGdnFTPi8hjOS87uFym7ruWMq3F3jBr0kSPgVhbKz5CwUyV8R/slideshow.svg";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        const std::string docUri
-            = "/tmp/slideshow_b8c3225b_setclientpart.odp";
-
-        LOK_ASSERT_EQUAL(docUri, details.getLegacyDocumentURI());
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(std::string(), details.getField(RequestDetails::Field::WOPISrc));
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(5), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(std::string("%2Ftmp%2Fslideshow_b8c3225b_setclientpart.odp"), details[1]);
-        LOK_ASSERT_EQUAL(std::string("Ar3M1X89mVaryYkh"), details[2]);
-        LOK_ASSERT_EQUAL(std::string("UjaCGP4cYHlU6TvUGdnFTPi8hjOS87uFym7ruWMq3F3jBr0kSPgVhbKz5CwUyV8R"), details[3]);
-        LOK_ASSERT_EQUAL(std::string("slideshow.svg"), details[4]);
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, ""));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, ""));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, ""));
-    }
-
-    {
-        static const std::string URI = "/cool/"
-                                       "clipboard?WOPISrc=file%3A%2F%2F%2Ftmp%2Fcopypasteef324307_"
-                                       "empty.ods&ServerId=7add98ed&ViewId=0&Tag=5f7972ce4e6a37dd";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        const std::string docUri = "clipboard";
-
-        LOK_ASSERT_EQUAL(docUri, details.getLegacyDocumentURI());
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(3), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-        LOK_ASSERT_EQUAL(std::string("clipboard"), details[1]);
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, ""));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, ""));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, ""));
-    }
-
-    {
-        static const std::string URI
-        = "/cool/"
-          "https%3A%2F%2Fexample.com%3A8443%2Frest%2Ffiles%2Fwopi%2Ffiles%"
-          "2F8ac75551de4d89e60002%3Faccess_header%3DAuthorization%253A%252520Bearer%"
-          "252520poiuytrewq%25250D%25250A%25250D%25250AX-Requested-"
-          "With%253A%252520XMLHttpRequest%26reuse_cookies%3Dlang%253Den-us%253A_ga_"
-          "LMX4TVJ02K%253DGS1.1%"
-          "253AToken%253DeyJhbGciOiJIUzUxMiJ9.vajknfkfajksdljfiwjek-"
-          "W90fmgVb3C-00-eSkJBDqDNSYA%253APublicToken%"
-          "253Dabc%253AZNPCQ003-32383700%253De9c71c3b%"
-          "253AJSESSIONID%253Dnode0.node0%26permission%3Dedit/"
-          "ws?WOPISrc=https://example.com:8443/rest/files/wopi/files/"
-          "8c74c1deff7dede002&compat=/ws";
-
-        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, URI,
-                                       Poco::Net::HTTPMessage::HTTP_1_1);
-        request.setHost(Root);
-        request.set("User-Agent", WOPI_AGENT_STRING);
-        request.set("ProxyPrefix", ProxyPrefix);
-
-        RequestDetails details(request, "");
-        LOK_ASSERT_EQUAL(true, details.isProxy());
-        LOK_ASSERT_EQUAL(ProxyPrefix, details.getProxyPrefix());
-
-        LOK_ASSERT_EQUAL(Root, details.getHostUntrusted());
-        LOK_ASSERT_EQUAL(false, details.isWebSocket());
-        LOK_ASSERT_EQUAL(true, details.isGet());
-
-        const std::string docUri
-            = "https://example.com:8443/rest/files/wopi/files/"
-              "8ac75551de4d89e60002?access_header=Authorization%3A%2520Bearer%2520poiuytrewq%250D%"
-              "250A%250D%250AX-Requested-With%3A%2520XMLHttpRequest&reuse_cookies=lang%3Den-us%3A_"
-              "ga_LMX4TVJ02K%3DGS1.1%3AToken%3DeyJhbGciOiJIUzUxMiJ9.vajknfkfajksdljfiwjek-"
-              "W90fmgVb3C-00-eSkJBDqDNSYA%3APublicToken%3Dabc%3AZNPCQ003-32383700%3De9c71c3b%"
-              "3AJSESSIONID%3Dnode0.node0&permission=edit";
-
-        // LOK_ASSERT_EQUAL(docUri, details.getLegacyDocumentURI()); // Broken.
-        LOK_ASSERT_EQUAL(docUri, details.getDocumentURI());
-
-        const std::map<std::string, std::string>& params = details.getDocumentURIParams();
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(3), params.size());
-        auto it = params.find("access_header");
-        const std::string access_header
-            = "Authorization: Bearer poiuytrewq\r\n\r\nX-Requested-With: XMLHttpRequest";
-        LOK_ASSERT_EQUAL(access_header, it != params.end() ? it->second : "");
-        it = params.find("reuse_cookies");
-        const std::string reuse_cookies
-            = "lang=en-us:_ga_LMX4TVJ02K=GS1.1:Token=eyJhbGciOiJIUzUxMiJ9.vajknfkfajksdljfiwjek-"
-              "W90fmgVb3C-00-eSkJBDqDNSYA:PublicToken=abc:ZNPCQ003-32383700=e9c71c3b:JSESSIONID="
-              "node0.node0";
-        LOK_ASSERT_EQUAL(reuse_cookies, it != params.end() ? it->second : "");
-        it = params.find("permission");
-        const std::string permission = "edit";
-        LOK_ASSERT_EQUAL(permission, it != params.end() ? it->second : "");
-
-        LOK_ASSERT_EQUAL(static_cast<std::size_t>(11), details.size());
-        LOK_ASSERT_EQUAL(std::string("cool"), details[0]);
-        LOK_ASSERT(details.equals(0, "cool"));
-
-        const std::string encodedDocUri
-            = "https%3A%2F%2Fexample.com%3A8443%2Frest%2Ffiles%2Fwopi%2Ffiles%"
-              "2F8ac75551de4d89e60002%3Faccess_header%3DAuthorization%253A%252520Bearer%"
-              "252520poiuytrewq%25250D%25250A%25250D%25250AX-Requested-With%253A%"
-              "252520XMLHttpRequest%26reuse_cookies%3Dlang%253Den-us%253A_ga_LMX4TVJ02K%253DGS1.1%"
-              "253AToken%253DeyJhbGciOiJIUzUxMiJ9.vajknfkfajksdljfiwjek-W90fmgVb3C-00-eSkJBDqDNSYA%"
-              "253APublicToken%253Dabc%253AZNPCQ003-32383700%253De9c71c3b%253AJSESSIONID%253Dnode0."
-              "node0%26permission%3Dedit";
-
-        LOK_ASSERT_EQUAL(encodedDocUri, details[1]);
-
-        LOK_ASSERT_EQUAL(std::string("cool"), details.getField(RequestDetails::Field::Type));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Type, "cool"));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::SessionId));
-        LOK_ASSERT(details.equals(RequestDetails::Field::SessionId, ""));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Command));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Command, ""));
-        LOK_ASSERT_EQUAL(std::string(""), details.getField(RequestDetails::Field::Serial));
-        LOK_ASSERT(details.equals(RequestDetails::Field::Serial, ""));
+        LOK_ASSERT(Util::dataFromHexString(hex2, decoded2));
+        LOK_ASSERT_EQUAL(randStrLen, decoded2.size());
+        LOK_ASSERT_EQUAL(Util::toString(s2), Util::toString(decoded2));
     }
 }
 
 void WhiteBoxTests::testUIDefaults()
 {
+    constexpr auto testname = __func__;
+
     std::string uiMode;
 
     LOK_ASSERT_EQUAL(std::string("{\"uiMode\":\"classic\"}"),
@@ -1984,6 +943,8 @@ void WhiteBoxTests::testUIDefaults()
 
 void WhiteBoxTests::testCSSVars()
 {
+    constexpr auto testname = __func__;
+
     LOK_ASSERT_EQUAL(std::string("<style>:root {--co-somestyle-text:#123456;--co-somestyle-size:15px;}</style>"),
                      FileServerRequestHandler::cssVarsToStyle("--co-somestyle-text=#123456;--co-somestyle-size=15px;"));
 
@@ -1999,6 +960,8 @@ void WhiteBoxTests::testCSSVars()
 
 void WhiteBoxTests::testStat()
 {
+    constexpr auto testname = __func__;
+
     FileUtil::Stat invalid("/missing/file/path");
     LOK_ASSERT(!invalid.good());
     LOK_ASSERT(invalid.bad());
@@ -2047,6 +1010,8 @@ void WhiteBoxTests::testStat()
 
 void WhiteBoxTests::testStringCompare()
 {
+    constexpr auto testname = __func__;
+
     LOK_ASSERT(Util::iequal("abcd", "abcd"));
     LOK_ASSERT(Util::iequal("aBcd", "abCd"));
     LOK_ASSERT(Util::iequal("", ""));
@@ -2056,10 +1021,20 @@ void WhiteBoxTests::testStringCompare()
     LOK_ASSERT(!Util::iequal("abc", "abcd"));
 
     LOK_ASSERT(!Util::iequal("abc", 3, "abcd", 4));
+
+    LOK_ASSERT(!Util::startsWith("abc", "abcd"));
+    LOK_ASSERT(Util::startsWith("abcd", "abc"));
+    LOK_ASSERT(Util::startsWith("abcd", "abcd"));
+
+    LOK_ASSERT(!Util::endsWith("abc", "abcd"));
+    LOK_ASSERT(Util::endsWith("abcd", "bcd"));
+    LOK_ASSERT(Util::endsWith("abcd", "abcd"));
 }
 
 void WhiteBoxTests::testParseUri()
 {
+    constexpr auto testname = __func__;
+
     std::string scheme = "***";
     std::string host = "***";
     std::string port = "***";
@@ -2122,6 +1097,8 @@ void WhiteBoxTests::testParseUri()
 
 void WhiteBoxTests::testParseUriUrl()
 {
+    constexpr auto testname = __func__;
+
     std::string scheme = "***";
     std::string host = "***";
     std::string port = "***";
@@ -2195,6 +1172,8 @@ void WhiteBoxTests::testParseUriUrl()
 
 void WhiteBoxTests::testParseUrl()
 {
+    constexpr auto testname = __func__;
+
     LOK_ASSERT_EQUAL(std::string(), net::parseUrl(""));
 
     LOK_ASSERT_EQUAL(std::string(), net::parseUrl("https://sub.domain.com:80"));
@@ -2206,6 +1185,8 @@ void WhiteBoxTests::testParseUrl()
 
 void WhiteBoxTests::testSafeAtoi()
 {
+    constexpr auto testname = __func__;
+
     {
         std::string s("7");
         LOK_ASSERT_EQUAL(7, Util::safe_atoi(s.data(), s.size()));
@@ -2253,6 +1234,8 @@ void WhiteBoxTests::testSafeAtoi()
 
 void WhiteBoxTests::testBytesToHex()
 {
+    constexpr auto testname = __func__;
+
     {
         const std::string d("Some text");
         const std::string hex = Util::bytesToHexString(d);
@@ -2263,9 +1246,23 @@ void WhiteBoxTests::testBytesToHex()
 
 void WhiteBoxTests::testJsonUtilEscapeJSONValue()
 {
+    constexpr auto testname = __func__;
+
     const std::string in = "domain\\username";
     const std::string expected = "domain\\\\username";
     LOK_ASSERT_EQUAL(JsonUtil::escapeJSONValue(in), expected);
+}
+
+void WhiteBoxTests::testUtf8()
+{
+#if ENABLE_DEBUG
+    constexpr auto testname = __func__;
+    LOK_ASSERT(Util::isValidUtf8("foo"));
+    LOK_ASSERT(Util::isValidUtf8("©")); // 2 char
+    LOK_ASSERT(Util::isValidUtf8("→ ")); // 3 char
+    LOK_ASSERT(Util::isValidUtf8("🏃 is not 🏊."));
+    LOK_ASSERT(!Util::isValidUtf8("\xff\x03"));
+#endif
 }
 
 CPPUNIT_TEST_SUITE_REGISTRATION(WhiteBoxTests);

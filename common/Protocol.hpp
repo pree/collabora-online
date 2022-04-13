@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include <StringVector.hpp>
 #include <Util.hpp>
 
 #define LOK_USE_UNSTABLE_API
@@ -101,6 +102,13 @@ namespace COOLProtocol
         return false;
     }
 
+    /// Extracts a name and value from token. Returns true if value is a non-negative integer.
+    template <std::size_t N>
+    inline bool getNonNegTokenInteger(const std::string& token, const char (&name)[N], int& value)
+    {
+        return getTokenInteger(token, name, value) && value >= 0;
+    }
+
     inline bool getTokenString(const StringVector& tokens,
                                const std::string& name,
                                std::string& value)
@@ -155,7 +163,7 @@ namespace COOLProtocol
 
     inline bool getTokenIntegerFromMessage(const std::string& message, const std::string& name, int& value)
     {
-        return getTokenInteger(Util::tokenize(message), name, value);
+        return getTokenInteger(StringVector::tokenize(message), name, value);
     }
 
     /// Returns the first token of a message.

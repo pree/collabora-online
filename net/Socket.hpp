@@ -37,6 +37,10 @@
 #include "Buffer.hpp"
 #include "SigUtil.hpp"
 
+#ifdef __linux__
+#define HAVE_ABSTRACT_UNIX_SOCKETS
+#endif
+
 // Enable to dump socket traffic as hex in logs.
 // #define LOG_SOCKET_DATA ENABLE_DEBUG
 
@@ -310,7 +314,7 @@ public:
     {
         if (id != _owner)
         {
-            LOG_DBG('#' << _fd << " thread affinity set to " << Log::to_string(id) << " (was "
+            LOG_TRC('#' << _fd << " thread affinity set to " << Log::to_string(id) << " (was "
                         << Log::to_string(_owner) << ')');
             _owner = id;
         }
@@ -321,7 +325,7 @@ public:
     {
         if (std::thread::id() != _owner)
         {
-            LOG_DBG('#' << _fd << " resetting thread affinity while in transit (was "
+            LOG_TRC('#' << _fd << " resetting thread affinity while in transit (was "
                         << Log::to_string(_owner) << ')');
             _owner = std::thread::id();
         }
@@ -368,7 +372,7 @@ protected:
         _ignoreInput = false;
         _sendBufferSize = DefaultSendBufferSize;
         _owner = std::this_thread::get_id();
-        LOG_DBG('#' << _fd << " Created socket. Thread affinity set to " << Log::to_string(_owner));
+        LOG_TRC('#' << _fd << " Created socket. Thread affinity set to " << Log::to_string(_owner));
 
 #if !MOBILEAPP
 #if ENABLE_DEBUG
@@ -576,7 +580,7 @@ class SocketPoll
 {
 public:
     /// Create a socket poll, called rather infrequently.
-    explicit SocketPoll(const std::string& threadName);
+    explicit SocketPoll(std::string threadName);
     virtual ~SocketPoll();
 
     /// Default poll time - useful to increase for debugging.
@@ -731,7 +735,8 @@ public:
     {
         if (newSocket)
         {
-            LOG_DBG("Inserting socket #" << newSocket->getFD() << " into " << _name);
+            LOG_DBG("Inserting socket #" << newSocket->getFD() << ", address ["
+                                         << newSocket->clientAddress() << "], into " << _name);
             // sockets in transit are un-owned.
             newSocket->resetThreadOwner();
 
@@ -747,7 +752,7 @@ public:
     void insertNewWebSocketSync(const Poco::URI& uri,
                                 const std::shared_ptr<WebSocketHandler>& websocketHandler);
 
-    void insertNewUnixSocket(
+    bool insertNewUnixSocket(
         const std::string &location,
         const std::string &pathAndQuery,
         const std::shared_ptr<WebSocketHandler>& websocketHandler,
@@ -843,6 +848,8 @@ private:
             _pollFds[i].fd = _pollSockets[i]->getFD();
             _pollFds[i].events = events;
             _pollFds[i].revents = 0;
+            LOG_TRC('#' << _pollFds[i].fd << ": setupPollFds getPollEvents: 0x" << std::hex
+                        << events << std::dec);
         }
 
         // Add the read-end of the wake pipe.
@@ -908,11 +915,11 @@ public:
     };
 
     /// Create a StreamSocket from native FD.
-    StreamSocket(const std::string hostname, const int fd, bool /* isClient */,
+    StreamSocket(std::string host, const int fd, bool /* isClient */,
                  std::shared_ptr<ProtocolHandlerInterface> socketHandler,
                  ReadType readType = NormalRead) :
         Socket(fd),
-        _hostname(std::move(hostname)),
+        _hostname(std::move(host)),
         _socketHandler(std::move(socketHandler)),
         _bytesSent(0),
         _bytesRecvd(0),
@@ -924,7 +931,7 @@ public:
         _readType(readType),
         _inputProcessingEnabled(true)
     {
-        LOG_DBG("StreamSocket ctor #" << fd);
+        LOG_TRC("StreamSocket ctor #" << fd);
 
         // Without a handler we make no sense object.
         if (!_socketHandler)
@@ -933,7 +940,7 @@ public:
 
     ~StreamSocket()
     {
-        LOG_DBG("StreamSocket dtor #" << getFD() << " with pending "
+        LOG_TRC("StreamSocket dtor #" << getFD() << " with pending "
                 "write: " << _outBuffer.size() << ", read: " << _inBuffer.size());
 
         if (!_closed)
@@ -1112,15 +1119,22 @@ public:
                 len = readData(buf, sizeof(buf));
                 last_errno = errno;
 
-                LOG_TRC('#' << getFD() << ": Read incoming data " << len << " bytes in addition to "
-                            << _inBuffer.size() << " buffered bytes ("
-                            << Util::symbolicErrno(last_errno) << ": " << std::strerror(last_errno)
-                            << ')');
-
                 if (len < 0 && last_errno != EAGAIN && last_errno != EWOULDBLOCK)
-                    LOG_SYS_ERRNO(last_errno, '#' << getFD() << ": Socket read returned " << len);
-            }
-            while (len < 0 && last_errno == EINTR);
+                    LOG_SYS_ERRNO(last_errno, '#' << getFD() << ": read failed, have "
+                                                  << _inBuffer.size() << " buffered bytes");
+                else if (len <= 0)
+                    LOG_TRC('#' << getFD() << ": Read failed, have " << _inBuffer.size()
+                                << " buffered bytes (" << Util::symbolicErrno(last_errno) << ": "
+                                << std::strerror(last_errno) << ')');
+                else // Success.
+                    LOG_TRC('#' << getFD() << " Read " << len << " bytes in addition to "
+                                << _inBuffer.size() << " buffered bytes"
+#ifdef LOG_SOCKET_DATA
+                                << ":\n"
+                                << Util::dumpHex(std::string(buf, len))
+#endif
+                    );
+            } while (len < 0 && last_errno == EINTR);
 
             if (len > 0)
             {
@@ -1153,7 +1167,6 @@ public:
         }
 #endif
 
-        LOG_TRC('#' << getFD() << " readIncomingData: " << len);
         return len != 0; // zero is eof / clean socket close.
     }
 
@@ -1269,6 +1282,8 @@ protected:
     {
         ASSERT_CORRECT_SOCKET_THREAD(this);
 
+        LOG_TRC('#' << getFD() << ": revents: 0x" << std::hex << events << std::dec);
+
         _socketHandler->checkTimeout(now);
 
         if (!events && _inBuffer.empty())
@@ -1277,11 +1292,13 @@ protected:
         // FIXME: need to close input, but not output (?)
         bool closed = (events & (POLLHUP | POLLERR | POLLNVAL));
 
-        // Always try to read.
-        closed = !readIncomingData() || closed;
-
-        LOG_TRC('#' << getFD() << ": Incoming data buffer " << _inBuffer.size()
-                    << " bytes, closeSocket? " << closed << ", events: " << std::hex << events);
+        if (!EnableExperimental || events & POLLIN)
+        {
+            closed = !readIncomingData() || closed;
+            LOG_TRC('#' << getFD() << " Incoming data buffer " << _inBuffer.size()
+                        << " bytes, closeSocket? " << closed << ", events: " << std::hex << events
+                        << std::dec);
+        }
 
 #ifdef LOG_SOCKET_DATA
         if (!_inBuffer.empty())
@@ -1294,7 +1311,20 @@ protected:
         while (!_inBuffer.empty() && oldSize != _inBuffer.size() && processInputEnabled())
         {
             oldSize = _inBuffer.size();
-            _socketHandler->handleIncomingMessage(disposition);
+
+            try
+            {
+                _socketHandler->handleIncomingMessage(disposition);
+            }
+            catch (const std::exception& exception)
+            {
+                LOG_ERR('#' << getFD() << ": Error during handleIncomingMessage: " << exception.what());
+            }
+            catch (...)
+            {
+                LOG_ERR('#' << getFD() << ": Error during handleIncomingMessage.");
+            }
+
             if (disposition.isMove() || disposition.isTransfer())
                 return;
         }
@@ -1366,19 +1396,21 @@ public:
                 len = writeData(_outBuffer.getBlock(), size);
                 last_errno = errno; // Save right after the syscall.
 
-                LOG_TRC('#' << getFD() << ": Wrote outgoing data " << len << " bytes of "
-                            << _outBuffer.size() << " buffered bytes ("
-                            << Util::symbolicErrno(last_errno) << ": " << std::strerror(last_errno)
-                            << ')');
-
-#ifdef LOG_SOCKET_DATA
-                if (len > 0 && !_outBuffer.empty())
-                    LOG_TRC('#' << getFD() << " outBuffer (" << _outBuffer.size() << " bytes):\n"
-                                << Util::dumpHex(std::string(_outBuffer.getBlock(), len)));
-#endif
-
-                if (len <= 0 && last_errno != EAGAIN && last_errno != EWOULDBLOCK)
+                // 0 len is unspecified result, according to man write(2).
+                if (len < 0 && last_errno != EAGAIN && last_errno != EWOULDBLOCK)
                     LOG_SYS_ERRNO(last_errno, '#' << getFD() << ": Socket write returned " << len);
+                else if (len <= 0) // Trace errno for debugging, even for "unspecified result."
+                    LOG_TRC('#' << getFD() << ": Write failed, have " << _outBuffer.size()
+                                << " buffered bytes (" << Util::symbolicErrno(last_errno) << ": "
+                                << std::strerror(last_errno) << ')');
+                else // Success.
+                    LOG_TRC('#' << getFD() << ": Wrote " << len << " bytes of " << _outBuffer.size()
+                                << " buffered data"
+#ifdef LOG_SOCKET_DATA
+                                << ":\n"
+                                << Util::dumpHex(std::string(_outBuffer.getBlock(), len))
+#endif
+                    );
             }
             while (len < 0 && last_errno == EINTR);
 

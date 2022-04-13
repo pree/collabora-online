@@ -24,6 +24,7 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 		this._controlHandlers['panel'] = this._panelHandler;
 		this._controlHandlers['toolbox'] = this._toolboxHandler;
 		this._controlHandlers['mobile-popup-container'] = this._mobilePopupContainer;
+		this._controlHandlers['scrollwindow'] = undefined;
 
 		this._toolitemHandlers['.uno:FontworkAlignmentFloater'] = function () { return false; };
 		this._toolitemHandlers['.uno:FontworkCharacterSpacingFloater'] = function () { return false; };
@@ -61,19 +62,20 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 		var spinfield = L.DomUtil.create('input', 'spinfield', div);
 		spinfield.type = 'number';
 		spinfield.onkeypress = builder._preventNonNumericalInput;
+		spinfield.dir = document.documentElement.dir;
 		controls['spinfield'] = spinfield;
 
 		if (data.unit) {
 			var unit = L.DomUtil.create('span', 'spinfieldunit', div);
-			unit.innerHTML = builder._unitToVisibleString(data.unit);
+			unit.textContent = builder._unitToVisibleString(data.unit);
 		}
 
 		var controlsContainer = L.DomUtil.create('div', 'spinfieldcontrols', div);
 		var minus = L.DomUtil.create('div', 'minus', controlsContainer);
-		minus.innerHTML = '-';
+		minus.textContent = '-';
 
 		var plus = L.DomUtil.create('div', 'plus', controlsContainer);
-		plus.innerHTML = '+';
+		plus.textContent = '+';
 
 		if (data.min != undefined)
 			$(spinfield).attr('min', data.min);
@@ -181,7 +183,7 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 			if (title && title.length) {
 				var value = data.entries[data.selectedEntries[0]];
 				valueNode = L.DomUtil.create('div', '', null);
-				valueNode.innerHTML = value;
+				valueNode.textContent = value;
 			} else if (selectedEntryIsString)
 				title = builder._cleanText(data.selectedEntries[0]);
 			else
@@ -219,7 +221,7 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 		L.DomUtil.addClass(div, 'checkbutton');
 
 		var checkboxLabel = L.DomUtil.create('label', '', div);
-		checkboxLabel.innerHTML = builder._cleanText(data.text);
+		checkboxLabel.textContent = builder._cleanText(data.text);
 		checkboxLabel.for = data.id;
 		var checkbox = L.DomUtil.createWithId('input', data.id, div);
 		checkbox.type = 'checkbox';
@@ -255,7 +257,7 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 			radiobutton.name = data.group;
 
 		var radiobuttonLabel = L.DomUtil.create('label', '', container);
-		radiobuttonLabel.innerHTML = builder._cleanText(data.text);
+		radiobuttonLabel.textContent = builder._cleanText(data.text);
 		radiobuttonLabel.for = data.id;
 
 		if (data.enabled === 'false' || data.enabled === false)
@@ -278,6 +280,7 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 		var edit = L.DomUtil.create('input', 'ui-edit ' + builder.options.cssClass, parentContainer);
 		edit.value = builder._cleanText(data.text);
 		edit.id = data.id;
+		edit.dir = 'auto';
 
 		if (data.enabled === 'false' || data.enabled === false)
 			$(edit).prop('disabled', true);
@@ -502,7 +505,7 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 					data.text = _('Gradient Start');
 				else if (data.id === 'fillattr3')
 					data.text = _('Gradient End');
-				titleSpan.innerHTML = data.text;
+				titleSpan.textContent = data.text;
 			}
 		}.bind(this);
 
@@ -674,6 +677,16 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 		}
 	},
 
+	_countVisiblePanels: function(panels) {
+		var count = 0;
+
+		for (var i in panels)
+			if (panels[i].type === 'panel' && (!panels[i].hidden || panels[i].hidden === false))
+				count++;
+
+		return count;
+	},
+
 	build: function(parent, data) {
 		this._modifySidebarNodes(data);
 
@@ -703,16 +716,11 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 			}
 
 			var handler = this._controlHandlers[childType];
-			var twoPanelsAsChildren =
-					childData.children && childData.children.length == 2
-					&& childData.children[0] && childData.children[0].type == 'panel'
-					&& childData.children[1] && childData.children[1].type == 'panel';
 
-			if (childData.children && childData.children.length == 1
-				&& childData.children[0] && childData.children[0].type == 'panel') {
+			if (childData.children && this._countVisiblePanels(childData.children) == 1) {
 				handler = this._controlHandlers['singlepanel'];
 				processChildren = handler(childObject, childData.children, this);
-			} else if (twoPanelsAsChildren) {
+			} else if (childData.children && this._countVisiblePanels(childData.children) == 2) {
 				handler = this._controlHandlers['paneltabs'];
 				processChildren = handler(childObject, childData.children, this);
 			} else {
@@ -720,7 +728,7 @@ L.Control.MobileWizardBuilder = L.Control.JSDialogBuilder.extend({
 					processChildren = handler(childObject, childData, this);
 					this.postProcess(childObject, childData);
 				} else
-					console.warn('JSDialogBuilder: Unsupported control type: "' + childType + '"');
+					window.app.console.warn('JSDialogBuilder: Unsupported control type: "' + childType + '"');
 
 				if (processChildren && childData.children != undefined)
 					this.build(childObject, childData.children);

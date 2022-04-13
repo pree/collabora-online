@@ -31,14 +31,24 @@ L.Map.include({
 			return;
 		}
 
+		var notifyServer = function (part) {
+			// If this wasn't triggered from the server,
+			// then notify the server of the change.
+			if (!external)
+				app.socket.sendMessage('setclientpart part=' + part);
+		};
+
 		if (app.file.fileBasedView)
 		{
 			docLayer._selectedPart = docLayer._prevSelectedPart;
 			if (typeof(part) !== 'number') {
 				docLayer._preview._scrollViewByDirection(part);
+				this._docLayer._checkSelectedPart();
 				return;
 			}
 			docLayer._preview._scrollViewToPartPosition(docLayer._selectedPart);
+			this._docLayer._checkSelectedPart();
+			notifyServer(part);
 			return;
 		}
 
@@ -50,11 +60,7 @@ L.Map.include({
 			app.socket.sendMessage('resetselection');
 		}
 
-		// If this wasn't triggered from the server,
-		// then notify the server of the change.
-		if (!external) {
-			app.socket.sendMessage('setclientpart part=' + docLayer._selectedPart);
-		}
+		notifyServer(docLayer._selectedPart);
 
 		this.fire('updateparts', {
 			selectedPart: docLayer._selectedPart,
@@ -71,8 +77,8 @@ L.Map.include({
 		docLayer._updateOnChangePart();
 		docLayer._pruneTiles();
 		docLayer._prevSelectedPartNeedsUpdate = true;
-		if (docLayer._invalidatePreview) {
-			docLayer._invalidatePreview();
+		if (docLayer._invalidatePreviews) {
+			docLayer._invalidatePreviews();
 		}
 		docLayer._drawSearchResults();
 		if (!this._searchRequested) {
@@ -203,6 +209,9 @@ L.Map.include({
 		return {width: maxWidth, height: maxHeight};
 	},
 
+	// getCustomPreview
+	// Triggers the creation of a preview with the given id, of width X height size, of the [(tilePosX,tilePosY),
+	// (tilePosX + tileWidth, tilePosY + tileHeight)] section of the document.
 	getCustomPreview: function (id, part, width, height, tilePosX, tilePosY, tileWidth, tileHeight, options) {
 		if (!this._docPreviews) {
 			this._docPreviews = {};

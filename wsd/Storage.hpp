@@ -72,13 +72,10 @@ public:
     class FileInfo
     {
     public:
-        FileInfo(const std::string& filename,
-                 const std::string& ownerId,
-                 const std::chrono::system_clock::time_point& modifiedTime,
-                 std::size_t /*size*/)
-            : _filename(filename),
-              _ownerId(ownerId),
-              _modifiedTime(modifiedTime)
+        FileInfo(std::string filename, std::string ownerId, std::string modifiedTime)
+            : _filename(std::move(filename))
+            , _ownerId(std::move(ownerId))
+            , _modifiedTime(std::move(modifiedTime))
         {
         }
 
@@ -92,16 +89,16 @@ public:
 
         const std::string& getOwnerId() const { return _ownerId; }
 
-        /// Set the modified time as reported to the WOPI host.
-        void setModifiedTime(const std::chrono::system_clock::time_point& modifiedTime) { _modifiedTime = modifiedTime; }
+        /// Set the last modified time as reported to the WOPI host.
+        void setLastModifiedTime(const std::string& modifiedTime) { _modifiedTime = modifiedTime; }
 
-        /// Get the modified time as reported by the WOPI host.
-        const std::chrono::system_clock::time_point& getModifiedTime() const { return _modifiedTime; }
+        /// Get the last modified time as reported by the WOPI host.
+        const std::string& getLastModifiedTime() const { return _modifiedTime; }
 
     private:
         std::string _filename;
         std::string _ownerId;
-        std::chrono::system_clock::time_point _modifiedTime;
+        std::string _modifiedTime; //< Opaque modified timestamp as received from the server.
     };
 
     /// Represents the upload request result, with a Result code
@@ -197,7 +194,7 @@ public:
                 const std::string& jailPath) :
         _localStorePath(localStorePath),
         _jailPath(jailPath),
-        _fileInfo("", "cool", std::chrono::system_clock::time_point(), 0),
+        _fileInfo(std::string(), "cool", std::string()),
         _isDownloaded(false),
         _forceSave(false),
         _isUserModified(false),
@@ -327,7 +324,6 @@ public:
     static std::unique_ptr<StorageBase> create(const Poco::URI& uri, const std::string& jailRoot,
                                                const std::string& jailPath, bool takeOwnership);
 
-    static bool allowedWopiHost(const std::string& host);
     static Poco::Net::HTTPClientSession* getHTTPClientSession(const Poco::URI& uri);
     static std::shared_ptr<http::Session> getHttpSession(const Poco::URI& uri);
 
@@ -384,13 +380,10 @@ private:
     std::string _extendedData;
 
     static bool FilesystemEnabled;
-    static bool WopiEnabled;
     /// If true, use only the WOPI URL for whether to use SSL to talk to storage server
     static bool SSLAsScheme;
     /// If true, force SSL communication with storage server
     static bool SSLEnabled;
-    /// Allowed/denied WOPI hosts, if any and if WOPI is enabled.
-    static Util::RegexListMatcher WopiHosts;
 };
 
 /// Trivial implementation of local storage that does not need do anything.
@@ -479,7 +472,7 @@ public:
 
         /// warning - removes items from object.
         WOPIFileInfo(const FileInfo& fileInfo, std::chrono::milliseconds callDurationMs,
-                     Poco::JSON::Object::Ptr& object);
+                     Poco::JSON::Object::Ptr& object, Poco::URI &uriObject);
 
         const std::string& getUserId() const { return _userId; }
         const std::string& getUsername() const { return _username; }

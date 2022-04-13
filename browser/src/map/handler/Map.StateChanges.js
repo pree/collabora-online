@@ -27,11 +27,12 @@ L.Map.StateChangeHandler = L.Handler.extend({
 	},
 
 	_onStateChanged: function(e) {
+		var slideMasterPageItem = this._map['stateChangeHandler'].getItemValue('.uno:SlideMasterPage');
 		var state;
 
-		if (typeof(e.state) == 'object') {
+		if (typeof (e.state) == 'object') {
 			state = e.state;
-		} else if (typeof(e.state) == 'string') {
+		} else if (typeof (e.state) == 'string') {
 			var index = e.state.indexOf('{');
 			state = index !== -1 ? JSON.parse(e.state.substring(index)) : e.state;
 		}
@@ -41,21 +42,30 @@ L.Map.StateChangeHandler = L.Handler.extend({
 			var redlineId = 'change-' + state;
 			this._map._docLayer._annotations.selectById(redlineId);
 		}
-		$('#document-container').removeClass('slide-master-mode');
-		$('#document-container').addClass('slide-normal-mode');
 
 		if (e.commandName === '.uno:SlideMasterPage') {
-			var slideMasterPageItem = this._map['stateChangeHandler'].getItemValue('.uno:SlideMasterPage');
-			if (slideMasterPageItem === 'true') {
-				$('#document-container').removeClass('slide-normal-mode');
-				$('#document-container').addClass('slide-master-mode');
-				this._map._docLayer._preview._showMasterSlides();
-			}
-			if (!slideMasterPageItem  || slideMasterPageItem  == 'false' || slideMasterPageItem  == 'undefined') {
-				$('#document-container').removeClass('slide-master-mode');
-				$('#document-container').addClass('slide-normal-mode');
-				this._map._docLayer._preview._hideMasterSlides();
-			}
+			this._map._docLayer._masterPageChanged = true;
+			// clear the old tiles because they are saved in the same place
+			// since the part no will be the same for both views and it will think it is cached
+			this._map._docLayer._onMessage('invalidatetiles: EMPTY', null);
+		}
+
+		if (e.commandName === '.uno:FormatPaintbrush') {
+			if (state === 'true')
+				$('.leaflet-pane.leaflet-map-pane').addClass('bucket-cursor');
+			else
+				$('.leaflet-pane.leaflet-map-pane').removeClass('bucket-cursor');
+		}
+
+		$('#document-container').removeClass('slide-master-mode');
+		$('#document-container').addClass('slide-normal-mode');
+		if (slideMasterPageItem) {
+			$('#document-container').removeClass('slide-normal-mode');
+			$('#document-container').addClass('slide-master-mode');
+		}
+		if (!slideMasterPageItem || slideMasterPageItem == 'false' || slideMasterPageItem == 'undefined') {
+			$('#document-container').removeClass('slide-master-mode');
+			$('#document-container').addClass('slide-normal-mode');
 		}
 	},
 

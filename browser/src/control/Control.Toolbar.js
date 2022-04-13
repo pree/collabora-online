@@ -53,7 +53,8 @@ function onClose() {
 	}
 }
 
-function onClick(e, id, item) {
+function getToolbarItemById(id) {
+	var item;
 	if (w2ui['editbar'].get(id) !== null) {
 		var toolbar = w2ui['editbar'];
 		item = toolbar.get(id);
@@ -69,6 +70,12 @@ function onClick(e, id, item) {
 	else {
 		throw new Error('unknown id: ' + id);
 	}
+	return item;
+}
+
+function onClick(e, id, item) {
+	// dont reassign the item if we already have it
+	item = item || getToolbarItemById(id);
 
 	if (id === 'sidebar' || id === 'modifypage' || id === 'slidechangewindow' || id === 'customanimation' || id === 'masterslidespanel') {
 		window.initSidebarState = true;
@@ -87,6 +94,9 @@ function onClick(e, id, item) {
 		map.fire('postMessage', {msgId: 'Clicked_Button', args: {Id: item.id} });
 	}
 	else if (item.uno) {
+		if (id === 'save') {
+			map.fire('postMessage', {msgId: 'UI_Save', args: { source: 'toolbar' }});
+		}
 		if (item.unosheet && map.getDocType() === 'spreadsheet') {
 			map.toggleCommandState(item.unosheet);
 		}
@@ -100,7 +110,7 @@ function onClick(e, id, item) {
 	else if (id === 'save') {
 		// Save only when not read-only.
 		if (!map.isPermissionReadOnly()) {
-			map.fire('postMessage', {msgId: 'UI_Save'});
+			map.fire('postMessage', {msgId: 'UI_Save', args: { source: 'toolbar' }});
 			if (!map._disableDefaultAction['UI_Save']) {
 				map.save(false /* An explicit save should terminate cell edit */, false /* An explicit save should save it again */);
 			}
@@ -217,7 +227,7 @@ function setBorderStyle(num, color) {
 	case 11: _setBorders(1, 1, 1, 1, 0, 1, color); break;
 	case 12: _setBorders(1, 1, 1, 1, 1, 1, color); break;
 
-	default: console.log('ignored border: ' + num);
+	default: window.app.console.log('ignored border: ' + num);
 	}
 
 	// TODO we may consider keeping it open in the future if we add border color
@@ -253,15 +263,20 @@ function setConditionalFormatIconSet(num) {
 
 global.setConditionalFormatIconSet = setConditionalFormatIconSet;
 
-function getConditionalFormatMenuHtml() {
-	return '<table id="conditionalformatmenu-grid"><tr>' +
+function getConditionalFormatMenuHtml(more) {
+	var table = '<table id="conditionalformatmenu-grid"><tr>' +
 	'<td class="w2ui-tb-image w2ui-icon iconset00" onclick="setConditionalFormatIconSet(0)"/><td class="w2ui-tb-image w2ui-icon iconset01" onclick="setConditionalFormatIconSet(1)"/><td class="w2ui-tb-image w2ui-icon iconset02" onclick="setConditionalFormatIconSet(2)"/></tr><tr>' +
 	'<td class="w2ui-tb-image w2ui-icon iconset03" onclick="setConditionalFormatIconSet(3)"/><td class="w2ui-tb-image w2ui-icon iconset04" onclick="setConditionalFormatIconSet(4)"/><td class="w2ui-tb-image w2ui-icon iconset05" onclick="setConditionalFormatIconSet(5)"/></tr><tr>' +
 	'<td class="w2ui-tb-image w2ui-icon iconset06" onclick="setConditionalFormatIconSet(6)"/><td class="w2ui-tb-image w2ui-icon iconset08" onclick="setConditionalFormatIconSet(8)"/><td class="w2ui-tb-image w2ui-icon iconset09" onclick="setConditionalFormatIconSet(9)"/></tr><tr>' + // iconset07 deliberately left out, see the .css for the reason
 	'<td class="w2ui-tb-image w2ui-icon iconset10" onclick="setConditionalFormatIconSet(10)"/><td class="w2ui-tb-image w2ui-icon iconset11" onclick="setConditionalFormatIconSet(11)"/><td class="w2ui-tb-image w2ui-icon iconset12" onclick="setConditionalFormatIconSet(12)"/></tr><tr>' +
 	'<td class="w2ui-tb-image w2ui-icon iconset13" onclick="setConditionalFormatIconSet(13)"/><td class="w2ui-tb-image w2ui-icon iconset14" onclick="setConditionalFormatIconSet(14)"/><td class="w2ui-tb-image w2ui-icon iconset15" onclick="setConditionalFormatIconSet(15)"/></tr><tr>' +
 	'<td class="w2ui-tb-image w2ui-icon iconset16" onclick="setConditionalFormatIconSet(16)"/><td class="w2ui-tb-image w2ui-icon iconset17" onclick="setConditionalFormatIconSet(17)"/><td class="w2ui-tb-image w2ui-icon iconset18" onclick="setConditionalFormatIconSet(18)"/></tr><tr>' +
-	'<td class="w2ui-tb-image w2ui-icon iconset19" onclick="setConditionalFormatIconSet(19)"/><td class="w2ui-tb-image w2ui-icon iconset20" onclick="setConditionalFormatIconSet(20)"/><td class="w2ui-tb-image w2ui-icon iconset21" onclick="setConditionalFormatIconSet(21)"/></tr></table>';
+	'<td class="w2ui-tb-image w2ui-icon iconset19" onclick="setConditionalFormatIconSet(19)"/><td class="w2ui-tb-image w2ui-icon iconset20" onclick="setConditionalFormatIconSet(20)"/><td class="w2ui-tb-image w2ui-icon iconset21" onclick="setConditionalFormatIconSet(21)"/></tr>';
+	if (more) {
+		table += '<tr><td id="' + more + '">' + _('More...') + '</td></tr>';
+	}
+	table += '</table>';
+	return table;
 }
 
 global.getConditionalFormatMenuHtml = getConditionalFormatMenuHtml;
@@ -896,12 +911,7 @@ function processStateChangedCommand(commandName, state) {
 			toolbar.disable('repair');
 		}
 	}
-	else if (commandName === '.uno:FormatPaintbrush') {
-		if (state === 'true')
-			$('.leaflet-pane.leaflet-map-pane').addClass('bucket-cursor');
-		else
-			$('.leaflet-pane.leaflet-map-pane').removeClass('bucket-cursor');
-	}
+
 	if (commandName === '.uno:SpacePara1' || commandName === '.uno:SpacePara15'
 		|| commandName === '.uno:SpacePara2') {
 		toolbar.refresh();
@@ -1052,8 +1062,12 @@ function onUpdatePermission(e) {
 			}
 		}
 		if (e.perm === 'edit') {
+			$('#toolbar-mobile-back').removeClass('editmode-off');
+			$('#toolbar-mobile-back').addClass('editmode-on');
 			toolbar.set('closemobile', {img: 'editmode'});
 		} else {
+			$('#toolbar-mobile-back').removeClass('editmode-on');
+			$('#toolbar-mobile-back').addClass('editmode-off');
 			toolbar.set('closemobile', {img: 'closemobile'});
 		}
 
@@ -1179,12 +1193,15 @@ function updateVisibilityForToolbar(toolbar, context) {
 			else
 				toHide.push(item.id);
 		} else if (!context && item.context) {
-			toHide.push(item.id);
+			if (item.context.indexOf('default') >= 0)
+				toShow.push(item.id);
+			else
+				toHide.push(item.id);
 		}
 	});
 
-	console.log('explicitly hiding: ' + toHide);
-	console.log('explicitly showing: ' + toShow);
+	window.app.console.log('explicitly hiding: ' + toHide);
+	window.app.console.log('explicitly showing: ' + toShow);
 
 	toHide.forEach(function(item) { toolbar.hide(item); });
 	toShow.forEach(function(item) { toolbar.show(item); });

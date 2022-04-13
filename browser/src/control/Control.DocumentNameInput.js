@@ -3,7 +3,7 @@
  * L.Control.DocumentNameInput
  */
 
-/* global $ */
+/* global $ _ */
 L.Control.DocumentNameInput = L.Control.extend({
 
 	onAdd: function (map) {
@@ -11,7 +11,6 @@ L.Control.DocumentNameInput = L.Control.extend({
 
 		map.on('doclayerinit', this.onDocLayerInit, this);
 		map.on('wopiprops', this.onWopiProps, this);
-		map.on('resize', this.onResize, this);
 	},
 
 	documentNameConfirm: function() {
@@ -41,13 +40,10 @@ L.Control.DocumentNameInput = L.Control.extend({
 
 	documentNameCancel: function() {
 		$('#document-name-input').val(this.map['wopi'].BreadcrumbDocName);
-		this._setNameInputWidth();
 		this.map._onGotFocus();
 	},
 
 	onDocumentNameKeyPress: function(e) {
-		var tail = (e.keyCode !== 13 && e.keyCode !== 27) ? 'X' : null;
-		this._setNameInputWidth(tail);
 		if (e.keyCode === 13) { // Enter key
 			this.documentNameConfirm();
 		} else if (e.keyCode === 27) { // Escape key
@@ -67,23 +63,39 @@ L.Control.DocumentNameInput = L.Control.extend({
 	},
 
 	onDocLayerInit: function() {
-		this._setNameInputWidth();
+
+		var el = $('#document-name-input');
+
+		try {
+			var fileNameFullPath = new URL(
+				new URLSearchParams(window.location.search).get('WOPISrc')
+			)
+				.pathname
+				.replace('/wopi/files', '');
+
+			var basePath = fileNameFullPath.replace(this.map['wopi'].BaseFileName , '').replace(/\/$/, '');
+			var title = this.map['wopi'].BaseFileName + '\n' + _('Path') + ': ' + basePath;
+
+			el.prop('title', title);
+		} catch (e) {
+			// purposely ignore the error for legacy browsers
+		}
 
 		// FIXME: Android app would display a temporary filename, not the actual filename
 		if (window.ThisIsTheAndroidApp) {
-			$('#document-name-input').hide();
+			el.hide();
 		} else {
-			$('#document-name-input').show();
+			el.show();
 		}
 
 		if (window.ThisIsAMobileApp) {
 			// We can now set the document name in the menu bar
-			$('#document-name-input').prop('disabled', false);
-			$('#document-name-input').removeClass('editable');
-			$('#document-name-input').focus(function() { $(this).blur(); });
+			el.prop('disabled', false);
+			el.removeClass('editable');
+			el.focus(function() { $(this).blur(); });
 			// Call decodeURIComponent twice: Reverse both our encoding and the encoding of
 			// the name in the file system.
-			$('#document-name-input').val(decodeURIComponent(decodeURIComponent(this.map.options.doc.replace(/.*\//, '')))
+			el.val(decodeURIComponent(decodeURIComponent(this.map.options.doc.replace(/.*\//, '')))
 							  // To conveniently see the initial visualViewport scale and size, un-comment the following line.
 							  // + ' (' + window.visualViewport.scale + '*' + window.visualViewport.width + 'x' + window.visualViewport.height + ')'
 							  // TODO: Yes, it would be better to see it change as you rotate the device or invoke Split View.
@@ -109,10 +121,6 @@ L.Control.DocumentNameInput = L.Control.extend({
 		}
 	},
 
-	onResize: function() {
-		this._setNameInputWidth();
-	},
-
 	_getMaxAvailableWidth: function() {
 		var x = $('#document-titlebar').prop('offsetLeft') + $('.document-title').prop('offsetLeft') + $('#document-name-input').prop('offsetLeft');
 		var containerWidth = parseInt($('.main-nav').css('width'));
@@ -121,16 +129,6 @@ L.Control.DocumentNameInput = L.Control.extend({
 		return maxWidth;
 	},
 
-	_setNameInputWidth: function(tail) {
-		var documentNameInput = $('#document-name-input');
-		var content = (typeof tail === 'string') ? documentNameInput.val() + tail : documentNameInput.val();
-		var font = documentNameInput.css('font');
-		var textWidth = L.getTextWidth(content, font) + 24;
-		var maxWidth = this._getMaxAvailableWidth();
-		//console.log('_setNameInputWidth: textWidth: ' + textWidth + ', maxWidth: ' + maxWidth);
-		textWidth = Math.min(textWidth, maxWidth);
-		documentNameInput.css('width', textWidth + 'px');
-	}
 });
 
 L.control.documentNameInput = function () {

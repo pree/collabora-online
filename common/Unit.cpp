@@ -7,12 +7,13 @@
 
 #include <config.h>
 
-#include <iostream>
 #include "Unit.hpp"
 
+#include <iostream>
 #include <cassert>
 #include <dlfcn.h>
 #include <fstream>
+#include <sstream>
 #include <sysexits.h>
 #include <thread>
 
@@ -31,6 +32,9 @@ char * UnitBase::UnitLibPath;
 static std::thread TimeoutThread;
 static std::atomic<bool> TimeoutThreadRunning(false);
 std::timed_mutex TimeoutThreadMutex;
+
+/// Controls whether experimental features/behavior is enabled or not.
+bool EnableExperimental = false;
 
 UnitBase *UnitBase::linkAndCreateUnit(UnitType type, const std::string &unitLibPath)
 {
@@ -90,7 +94,7 @@ bool UnitBase::init(UnitType type, const std::string &unitLibPath)
     {
         UnitBase* instance = linkAndCreateUnit(type, unitLibPath);
         rememberInstance(type, instance);
-        LOG_DBG(instance->_testname << ": Initializing");
+        LOG_DBG(instance->getTestname() << ": Initializing");
 
         if (instance && type == UnitType::Kit)
         {
@@ -101,13 +105,13 @@ bool UnitBase::init(UnitType type, const std::string &unitLibPath)
 
                     if (TimeoutThreadMutex.try_lock_for(instance->_timeoutMilliSeconds))
                     {
-                        LOG_DBG(instance->_testname << ": Unit test finished in time");
+                        LOG_DBG(instance->getTestname() << ": Unit test finished in time");
                         TimeoutThreadMutex.unlock();
                     }
                     else
                     {
-                        LOG_ERR(instance->_testname << ": Unit test timeout after "
-                                                  << instance->_timeoutMilliSeconds);
+                        LOG_ERR(instance->getTestname()
+                                << ": Unit test timeout after " << instance->_timeoutMilliSeconds);
                         instance->timeout();
                     }
                     TimeoutThreadRunning = false;
@@ -201,8 +205,8 @@ UnitBase::~UnitBase()
     _socketPoll->joinThread();
 }
 
-UnitWSD::UnitWSD(std::string testname)
-    : UnitBase(std::move(testname), UnitType::Wsd)
+UnitWSD::UnitWSD(std::string name)
+    : UnitBase(std::move(name), UnitType::Wsd)
     , _hasKitHooks(false)
 {
 }
@@ -243,8 +247,8 @@ UnitWSD& UnitWSD::get()
     return *GlobalWSD;
 }
 
-UnitKit::UnitKit(std::string testname)
-    : UnitBase(std::move(testname), UnitType::Kit)
+UnitKit::UnitKit(std::string name)
+    : UnitBase(std::move(name), UnitType::Kit)
 {
 }
 
@@ -265,23 +269,23 @@ UnitKit& UnitKit::get()
 
 void UnitBase::exitTest(TestResult result)
 {
-    if (_setRetValue)
+    if (isFinished())
     {
         return;
     }
 
     if (result == TestResult::Ok)
-        LOG_INF(getTestname() << ": SUCCESS: exitTest: " << testResultAsString(result)
+        LOG_TST(getTestname() << ": SUCCESS: exitTest: " << testResultAsString(result)
                               << ". Flagging to shutdown.");
     else
-        LOG_ERR(getTestname() << ": FAILURE: exitTest: " << testResultAsString(result)
-                              << ". Flagging to shutdown.");
+        LOG_TST("ERROR " << getTestname() << ": FAILURE: exitTest: " << testResultAsString(result)
+                         << ". Flagging to shutdown.");
 
     _setRetValue = true;
     _retValue = result == TestResult::Ok ? EX_OK : EX_SOFTWARE;
 #if !MOBILEAPP
     LOG_INF("Setting ShutdownRequestFlag: " << getTestname() << " test has finished.");
-    SigUtil::requestShutdown(); // And wakupWorld.
+    SigUtil::setTerminationFlag(); // And wakupWorld.
 #else
     SocketPoll::wakeupWorld();
 #endif
@@ -290,9 +294,10 @@ void UnitBase::exitTest(TestResult result)
 void UnitBase::timeout()
 {
     // Don't timeout if we had already finished.
-    if (isUnitTesting() && !_setRetValue)
+    if (isUnitTesting() && !isFinished())
     {
-        LOG_ERR(getTestname() << ": Timed out waiting for unit test to complete");
+        LOG_TST("ERROR " << getTestname() << ": Timed out waiting for unit test to complete within "
+                         << _timeoutMilliSeconds);
         exitTest(TestResult::TimedOut);
     }
 }

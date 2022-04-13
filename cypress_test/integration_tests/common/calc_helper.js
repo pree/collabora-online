@@ -228,6 +228,23 @@ function ensureViewContainsCellCursor() {
 	});
 }
 
+function assertDataClipboardTable(expectedData) {
+	cy.get('#copy-paste-container table td')
+		.should(function(cells) {
+			expect(cells).to.have.lengthOf(expectedData.length);
+		});
+
+	var data = [];
+
+	cy.get('#copy-paste-container tbody').find('td').each(($el) => {
+		cy.wrap($el)
+			.invoke('text')
+			.then(text => {
+				data.push(text);
+			});
+	}).then(() => expect(data).to.deep.eq(expectedData));
+}
+
 module.exports.clickOnFirstCell = clickOnFirstCell;
 module.exports.dblClickOnFirstCell = dblClickOnFirstCell;
 module.exports.clickFormulaBar = clickFormulaBar;
@@ -236,3 +253,4 @@ module.exports.removeTextSelection = removeTextSelection;
 module.exports.selectEntireSheet = selectEntireSheet;
 module.exports.selectFirstColumn = selectFirstColumn;
 module.exports.ensureViewContainsCellCursor = ensureViewContainsCellCursor;
+module.exports.assertDataClipboardTable = assertDataClipboardTable;

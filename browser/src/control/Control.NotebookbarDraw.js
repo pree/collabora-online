@@ -13,34 +13,10 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 				'type': 'toolbox',
 				'children': [
 					{
-						'id': 'menu',
-						'type': 'toolitem',
-						'text': _('Menu'),
-						'command': '.uno:Menubar'
-					},
-					{
 						'id': 'save',
 						'type': 'toolitem',
 						'text': _('Save'),
 						'command': '.uno:Save'
-					},
-					{
-						'id': 'fullscreen',
-						'type': 'toolitem',
-						'text': _UNO('.uno:FullScreen'),
-						'command': '.uno:FullScreen'
-					},
-					{
-						'id': 'undo',
-						'type': 'toolitem',
-						'text': _('Undo'),
-						'command': '.uno:Undo'
-					},
-					{
-						'id': 'redo',
-						'type': 'toolitem',
-						'text': _('Redo'),
-						'command': '.uno:Redo'
 					}
 				]
 			}
@@ -60,7 +36,7 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 						'children': [
 							{
 								'type': 'toolitem',
-								'text': _UNO('.uno:ModifyPage', 'drawing', true),
+								'text': _('Page layout'),
 								'command': '.uno:ModifyPage'
 							},
 							{
@@ -113,10 +89,15 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 				'context': 'Table'
 			},
 			{
-				'text': '~Draw',
+				'text': _('~Draw'),
 				'id': '-11',
 				'name': 'Draw',
 				'context': 'Draw|DrawLine|3DObject|MultiObject|Graphic|DrawFontwork'
+			},
+			{
+				'text': _('~View'),
+				'id': 'View',
+				'name': 'View',
 			},
 			{
 				'text': _('~Help'),
@@ -137,6 +118,7 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 				this.getFormatTab(),
 				this.getTableTab(),
 				this.getDrawTab(),
+				this.getViewTab(),
 				this.getHelpTab()
 			], selectedId);
 	},
@@ -148,6 +130,17 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 		var hasShare = this._map['wopi'].EnableShare;
 
 		var content = [
+			{
+				'type': 'toolbox',
+				'children': [
+					{
+						'id': 'file-save',
+						'type': 'bigtoolitem',
+						'text': _('Save'),
+						'command': '.uno:Save'
+					}
+				]
+			},
 			hasSaveAs ?
 				{
 					'id': 'file-saveas',
@@ -226,8 +219,83 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 		return this.getTabPage('File', content);
 	},
 
+	getViewTab: function() {
+		var content = [
+			{
+				'id': 'fullscreen',
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:FullScreen'),
+				'command': '.uno:FullScreen'
+			},
+			{
+				'id': 'zoomreset',
+				'type': 'menubartoolitem',
+				'text': _('Reset zoom'),
+				'command': _('Reset zoom')
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'zoomout',
+								'type': 'menubartoolitem',
+								'text': _UNO('.uno:ZoomMinus'),
+								'command': '.uno:ZoomMinus'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'zoomin',
+								'type': 'menubartoolitem',
+								'text': _UNO('.uno:ZoomPlus'),
+								'command': '.uno:ZoomPlus'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			},
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:Sidebar'),
+				'command': '.uno:Sidebar'
+			},
+			{
+				'id': 'showstatusbar',
+				'type': 'menubartoolitem',
+				'text': _('Toggle Status Bar'),
+				'command': _('Show Status Bar')
+			}
+		];
+
+		return this.getTabPage('View', content);
+	},
+
 	getHomeTab: function() {
 		var content = [
+			{
+				'id': 'home-undo-redo',
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolitem',
+						'text': _UNO('.uno:Undo'),
+						'command': '.uno:Undo'
+					},
+					{
+						'type': 'toolitem',
+						'text': _UNO('.uno:Redo'),
+						'command': '.uno:Redo'
+					},
+				],
+				'vertical': 'true'
+			},
 			{
 				'type': 'bigtoolitem',
 				'text': _UNO('.uno:Paste'),
@@ -532,7 +600,7 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 						'children': [
 							{
 								'type': 'toolitem',
-								'text': 'Connectors',
+								'text': _UNO('.uno:ConnectorToolbox', 'presentation'),
 								'command': '.uno:ConnectorToolbox'
 							}
 						]
@@ -663,64 +731,13 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 			},
 			{
 				'type': 'bigtoolitem',
-				'text': _UNO('.uno:ModifyPage', 'presentation'),
+				'text': _('Page layout'),
 				'command': '.uno:ModifyPage'
 			},
 			{
-				'type': 'container',
-				'children': [
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'fullscreen',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:FullScreen'),
-								'command': '.uno:FullScreen'
-							}
-						]
-					},
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomreset',
-								'type': 'menubartoolitem',
-								'text': _('Reset zoom'),
-								'command': _('Reset zoom')
-							}
-						]
-					}
-				],
-				'vertical': 'true'
-			},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomout',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:ZoomMinus'),
-								'command': '.uno:ZoomMinus'
-							}
-						]
-					},
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomin',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:ZoomPlus'),
-								'command': '.uno:ZoomPlus'
-							}
-						]
-					}
-				],
-				'vertical': 'true'
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:SelectAll'),
+				'command': '.uno:SelectAll'
 			},
 			{
 				'type': 'container',
@@ -808,6 +825,215 @@ L.Control.NotebookbarDraw = L.Control.NotebookbarImpress.extend({
 
 		return this.getTabPage('Layout', content);
 	},
+
+	getInsertTab: function() {
+		var content = [
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:InsertPage', 'presentation'),
+				'command': '.uno:InsertPage'
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:DuplicatePage', 'presentation'),
+								'command': '.uno:DuplicatePage'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:DeletePage', 'presentation'),
+								'command': '.uno:DeletePage'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			},
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:InsertGraphic'),
+				'command': '.uno:InsertGraphic'
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertTable', 'presentation'),
+								'command': '.uno:InsertTable'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertObjectChart', 'presentation'),
+								'command': '.uno:InsertObjectChart'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			},
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:HyperlinkDialog'),
+				'command': '.uno:HyperlinkDialog'
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertDateFieldFix', 'presentation'),
+								'command': '.uno:InsertDateFieldFix'
+							},
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertDateFieldVar', 'presentation'),
+								'command': '.uno:InsertDateFieldVar'
+							},
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertSlideField', 'presentation'),
+								'command': '.uno:InsertSlideField'
+							},
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertSlidesField', 'presentation'),
+								'command': '.uno:InsertSlidesField'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertTimeFieldFix', 'presentation'),
+								'command': '.uno:InsertTimeFieldFix'
+							},
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertTimeFieldVar', 'presentation'),
+								'command': '.uno:InsertTimeFieldVar'
+							},
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertSlideTitleField', 'presentation'),
+								'command': '.uno:InsertSlideTitleField'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			},
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:Text'),
+				'command': '.uno:Text'
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:BasicShapes'),
+								'command': '.uno:BasicShapes'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:Line', 'presentation'),
+								'command': '.uno:Line'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:FontworkGalleryFloater'),
+								'command': '.uno:FontworkGalleryFloater'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:VerticalText', 'presentation'),
+								'command': '.uno:VerticalText'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:CharmapControl'),
+								'command': '.uno:CharmapControl'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'type': 'toolitem',
+								'text': _UNO('.uno:InsertAnnotation', 'text'),
+								'command': '.uno:InsertAnnotation'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			}
+		];
+
+		return this.getTabPage('Insert', content);
+	},
+
 });
 
 L.control.notebookbarDraw = function (options) {

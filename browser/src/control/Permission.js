@@ -4,25 +4,31 @@
  */
 /* global app $ _ vex */
 L.Map.include({
+	readonlyStartingFormats: {
+		'txt': { canEdit: true, odfFormat: 'odt' },
+		'csv': { canEdit: true, odfFormat: 'ods' },
+		'xlsb': { canEdit: false, odfFormat: 'ods' }
+	},
+
 	setPermission: function (perm) {
 		var button = $('#mobile-edit-button');
 		button.off('click');
 		// app.file.fileBasedView is new view that has continuous scrolling
 		// used for PDF and we dont permit editing for PDFs
-		// this._isFilePlainText() is a check for plain text files and even on desktop browser
+		// this._shouldStartReadOnly() is a check for files that should start in readonly mode and even on desktop browser
 		// we warn the user about loosing the rich formatting and offer an option to
-		// save as ODF instead of plain text format
+		// save as ODF instead of the current format
 		//
 		// For mobile we need to display the edit button for all the cases except for PDF
 		// we offer save-as to another place where the user can edit the document
-		if (!app.file.fileBasedView && (this._isFilePlainText() || window.mode.isMobile() || window.mode.isTablet())) {
+		if (!app.file.fileBasedView && (this._shouldStartReadOnly() || window.mode.isMobile() || window.mode.isTablet())) {
 			button.show();
 		} else {
 			button.hide();
 		}
 		var that = this;
 		if (perm === 'edit') {
-			if (this._isFilePlainText() || window.mode.isMobile() || window.mode.isTablet()) {
+			if (this._shouldStartReadOnly() || window.mode.isMobile() || window.mode.isTablet()) {
 				button.on('click', function () {
 					that._switchToEditMode();
 				});
@@ -39,7 +45,12 @@ L.Map.include({
 			}
 		}
 		else if (perm === 'view' || perm === 'readonly') {
-			if (window.ThisIsTheAndroidApp) {
+			if (this.isLockedReadOnlyUser()) {
+				button.on('click', function () {
+					that.openUnlockPopup();
+				});
+			}
+			else if (window.ThisIsTheAndroidApp) {
 				button.on('click', function () {
 					that._requestFileCopy();
 				});
@@ -84,18 +95,29 @@ L.Map.include({
 	},
 
 	_getFileExtension: function (filename) {
-		return filename.substring(filename.lastIndexOf('.'));
+		return filename.substring(filename.lastIndexOf('.') + 1);
 	},
 
-	_isFilePlainText: function () {
+	_shouldStartReadOnly: function () {
+		if (this.isLockedReadOnlyUser())
+			return true;
 		var fileName = this['wopi'].BaseFileName;
 		// use this feature for only integration.
 		if (!fileName) return false;
 		var extension = this._getFileExtension(fileName);
-		return extension === '.csv' || extension === '.txt';
+		if (!Object.prototype.hasOwnProperty.call(this.readonlyStartingFormats, extension))
+			return false;
+		return true;
 	},
 
 	_proceedEditMode: function() {
+		var fileName = this['wopi'].BaseFileName;
+		if (fileName) {
+			var extension = this._getFileExtension(fileName);
+			var extensionInfo = this.readonlyStartingFormats[extension];
+			if (extensionInfo && !extensionInfo.canEdit)
+				return;
+		}
 		this.options.canTryLock = false; // don't respond to lockfailed anymore
 		$('#mobile-edit-button').hide();
 		this._enterEditMode('edit');
@@ -114,13 +136,17 @@ L.Map.include({
 		var fileName = this['wopi'].BaseFileName;
 		if (!fileName) return false;
 		var extension = this._getFileExtension(fileName);
-		var saveAsFormat = extension === '.csv' ? 'ods' : 'odt';
+		var extensionInfo = this.readonlyStartingFormats[extension];
+		var saveAsFormat = extensionInfo.odfFormat;
 		vex.dialog.prompt({
 			message: _('Enter a file name'),
 			placeholder: _('filename'),
+			value: fileName.substring(0, fileName.lastIndexOf('.')) + '.' + saveAsFormat,
 			callback: function (value) {
 				if (!value) return;
-				that.saveAs(value + '.' + saveAsFormat, saveAsFormat);
+				if (value.substring(value.lastIndexOf('.') + 1) !== saveAsFormat)
+					value = value + '.' + saveAsFormat;
+				that.saveAs(value, saveAsFormat);
 			}
 		});
 	},
@@ -128,8 +154,18 @@ L.Map.include({
 	// from read-only to edit mode
 	_switchToEditMode: function () {
 		// This will be handled by the native mobile app instead
-		if (this._isFilePlainText() && !window.ThisIsAMobileApp) {
+		if (this._shouldStartReadOnly() && !window.ThisIsAMobileApp) {
 			var that = this;
+			var fileName = this['wopi'].BaseFileName;
+			var extension = this._getFileExtension(fileName);
+			var extensionInfo = this.readonlyStartingFormats[extension];
+
+			var buttonList = [];
+			if (!this['wopi'].UserCanNotWriteRelative) {
+				buttonList.push($.extend({}, vex.dialog.buttons.YES, { text: _('Save as ODF format') }));
+			}
+			buttonList.push($.extend({}, vex.dialog.buttons.NO, { text: extensionInfo.canEdit ? _('Continue editing') : _('Continue read only')}));
+
 			vex.dialog.open({
 				message: _('This document may contain formatting or content that cannot be saved in the current file format.'),
 				overlayClosesOnClick: false,
@@ -141,10 +177,7 @@ L.Map.include({
 						this._proceedEditMode();
 					}
 				}, that),
-				buttons: [
-					$.extend({}, vex.dialog.buttons.YES, { text: _('Save as ODF format') }),
-					$.extend({}, vex.dialog.buttons.NO, { text: _('Continue editing')})
-				]
+				buttons: buttonList
 			});
 		} else {
 			this._proceedEditMode();

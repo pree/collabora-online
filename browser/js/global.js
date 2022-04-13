@@ -10,6 +10,7 @@ window.app = { // Shouldn't have any functions defined.
 	file: {
 		editComment: false,
 		readOnly: true,
+		disableSidebar: false,
 		size: {
 			pixels: [0, 0], // This can change according to the zoom level and document's size.
 			twips: [0, 0]
@@ -43,6 +44,7 @@ window.app = { // Shouldn't have any functions defined.
 		}
 	},
 	socket: null,
+	console: {},
 };
 
 (function (global) {
@@ -64,37 +66,48 @@ window.app = { // Shouldn't have any functions defined.
 		}
 	};
 
-	// If not debug, don't print anything on the console
-	// except in tile debug mode (Ctrl-Shift-Alt-d)
-	console.log2 = console.log;
-	console.logException = function (err) {
-		var log = 'jsexception ' + JSON.stringify(err, null, 2) + '\n';
-		console.log2(err);
-		global.logServer(log);
+	// enable later toggling
+	global.setLogging = function(doLogging)
+	{
+		var loggingMethods = ['error', 'warn', 'info', 'debug', 'trace', 'log', 'assert', 'time', 'timeEnd', 'group', 'groupEnd'];
+		if (!doLogging) {
+			var noop = function() {};
+
+			for (var i = 0; i < loggingMethods.length; i++) {
+				window.app.console[loggingMethods[i]] = noop;
+			}
+		} else {
+			for (var i = 0; i < loggingMethods.length; i++) {
+				if (!Object.prototype.hasOwnProperty.call(window.console, loggingMethods[i])) {
+					continue;
+				}
+				(function(method) {
+					window.app.console[method] = function logWithCool() {
+						var args = Array.prototype.slice.call(arguments);
+
+						return window.console[method].apply(console, args);
+					};
+				}(loggingMethods[i]));
+			}
+
+			window.onerror = function (msg, src, row, col, err) {
+				var data = {
+					userAgent: navigator.userAgent.toLowerCase(),
+					vendor: navigator.vendor.toLowerCase(),
+					message: msg,
+					source: src,
+					line: row,
+					column: col
+				};
+				var desc = err ? err.message || '(no message)': '(no err)', stack = err ? err.stack || '(no stack)': '(no err)';
+				var log = 'jserror ' + JSON.stringify(data, null, 2) + '\n' + desc + '\n' + stack + '\n';
+				global.logServer(log);
+				return false;
+			};
+		}
 	};
 
-	if (global.coolLogging !== 'true') {
-		var methods = ['warn', 'info', 'debug', 'trace', 'log', 'logException', 'assert', 'time', 'timeEnd'];
-		for (var i = 0; i < methods.length; i++) {
-			console[methods[i]] = function() {};
-		}
-	} else {
-		window.onerror = function (msg, src, row, col, err) {
-			var data = {
-				userAgent: navigator.userAgent.toLowerCase(),
-				vendor: navigator.vendor.toLowerCase(),
-				message: msg,
-				source: src,
-				line: row,
-				column: col
-			};
-			var desc = err ? err.message || {}: {}, stack = err ? err.stack || {}: {};
-			var log = 'jserror ' + JSON.stringify(data, null, 2) + '\n' + desc + '\n' + stack + '\n';
-			global.logServer(log);
-
-			return false;
-		};
-	}
+	global.setLogging(global.coolLogging == 'true');
 
 	global.getParameterByName = function (name) {
 		name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
@@ -368,19 +381,19 @@ window.app = { // Shouldn't have any functions defined.
 			return this.decoder.decode(this.doSlice(bytes, start,end));
 		};
 		this.parseIncomingArray = function(arr) {
-			//console.debug('proxy: parse incoming array of length ' + arr.length);
+			//window.app.console.debug('proxy: parse incoming array of length ' + arr.length);
 			for (var i = 0; i < arr.length; ++i)
 			{
 				var left = arr.length - i;
 				if (left < 4)
 				{
-					//console.debug('no data left');
+					//window.app.console.debug('no data left');
 					break;
 				}
 				var type = String.fromCharCode(arr[i+0]);
 				if (type != 'T' && type != 'B')
 				{
-					console.debug('wrong data type: ' + type);
+					window.app.console.debug('wrong data type: ' + type);
 					break;
 				}
 				i++;
@@ -388,7 +401,7 @@ window.app = { // Shouldn't have any functions defined.
 				// Serial
 				if (arr[i] !== 48 && arr[i+1] !== 120) // '0x'
 				{
-					console.debug('missing hex preamble');
+					window.app.console.debug('missing hex preamble');
 					break;
 				}
 				i += 2;
@@ -404,7 +417,7 @@ window.app = { // Shouldn't have any functions defined.
 				// Size:
 				if (arr[i] !== 48 && arr[i+1] !== 120) // '0x'
 				{
-					console.debug('missing hex preamble');
+					window.app.console.debug('missing hex preamble');
 					break;
 				}
 				i += 2;
@@ -423,7 +436,7 @@ window.app = { // Shouldn't have any functions defined.
 					data = this.doSlice(arr, i, i + size);
 
 				if (serial !== that.inSerial + 1) {
-					console.debug('Error: serial mismatch ' + serial + ' vs. ' + (that.inSerial + 1));
+					window.app.console.debug('Error: serial mismatch ' + serial + ' vs. ' + (that.inSerial + 1));
 				}
 				that.inSerial = serial;
 				this.onmessage({ data: data });
@@ -463,7 +476,7 @@ window.app = { // Shouldn't have any functions defined.
 			if (that.sessionId === 'open')
 			{
 				if (that.readyState === 3)
-					console.debug('Error: sending on closed socket');
+					window.app.console.debug('Error: sending on closed socket');
 				return;
 			}
 
@@ -475,16 +488,16 @@ window.app = { // Shouldn't have any functions defined.
 				if (that.curPollMs < that.maxPollMs)
 				{
 					that.curPollMs = Math.min(that.maxPollMs, that.curPollMs * that.throttleFactor) | 0;
-					console.debug('High latency connection - too much in-flight, throttling to ' + that.curPollMs + ' ms.');
+					window.app.console.debug('High latency connection - too much in-flight, throttling to ' + that.curPollMs + ' ms.');
 					that._setPollInterval(that.curPollMs);
 				}
 				else if (performance.now() - that.lastDataTimestamp > 30 * 1000)
 				{
-					console.debug('Close connection after no response for 30secs');
+					window.app.console.debug('Close connection after no response for 30secs');
 					that._signalErrorClose();
 				}
 				else
-					console.debug('High latency connection - too much in-flight, pausing.');
+					window.app.console.debug('High latency connection - too much in-flight, pausing.');
 				return;
 			}
 
@@ -493,7 +506,7 @@ window.app = { // Shouldn't have any functions defined.
 			// too long, hangs, throws, etc. we can recover.
 			that._setPollInterval(that.maxPollMs);
 
-			//console.debug('send msg - ' + that.msgInflight + ' on session ' +
+			//window.app.console.debug('send msg - ' + that.msgInflight + ' on session ' +
 			//	      that.sessionId + '  queue: "' + that.sendQueue + '"');
 			var req = new XMLHttpRequest();
 			req.open('POST', that.getEndPoint('write'));
@@ -517,7 +530,7 @@ window.app = { // Shouldn't have any functions defined.
 				}
 				else
 				{
-					console.debug('proxy: error on incoming response ' + this.status);
+					window.app.console.debug('proxy: error on incoming response ' + this.status);
 					that._signalErrorClose();
 				}
 
@@ -529,7 +542,7 @@ window.app = { // Shouldn't have any functions defined.
 					{
 						// Throttle.
 						that.curPollMs = Math.min(that.maxPollMs, that.curPollMs * that.throttleFactor) | 0;
-						//console.debug('No data for ' + timeSinceLastDataMs + ' ms -- throttling to ' + that.curPollMs + ' ms.');
+						//window.app.console.debug('No data for ' + timeSinceLastDataMs + ' ms -- throttling to ' + that.curPollMs + ' ms.');
 					}
 				}
 
@@ -545,7 +558,7 @@ window.app = { // Shouldn't have any functions defined.
 		this.getSessionId = function() {
 			if (this.openInflight > 0)
 			{
-				console.debug('Waiting for session open');
+				window.app.console.debug('Waiting for session open');
 				return;
 			}
 
@@ -558,7 +571,7 @@ window.app = { // Shouldn't have any functions defined.
 				var msSince = performance.now() - global.lastCreatedProxySocket;
 				if (msSince < 250) {
 					var delay = 250 - msSince;
-					console.debug('Wait to re-try session creation for ' + delay + 'ms');
+					window.app.console.debug('Wait to re-try session creation for ' + delay + 'ms');
 					this.curPollMs = delay; // ms
 					this.delaySession = setTimeout(function() {
 						that.delaySession = undefined;
@@ -573,11 +586,11 @@ window.app = { // Shouldn't have any functions defined.
 			req.open('POST', that.getEndPoint('open'));
 			req.responseType = 'text';
 			req.addEventListener('load', function() {
-				console.debug('got session: ' + this.responseText);
+				window.app.console.debug('got session: ' + this.responseText);
 				if (this.status !== 200 || !this.responseText ||
 				    this.responseText.indexOf('\n') >= 0) // multi-line error
 				{
-					console.debug('Error: failed to fetch session id! error: ' + this.status);
+					window.app.console.debug('Error: failed to fetch session id! error: ' + this.status);
 					that._signalErrorClose();
 				}
 				else // we connected - lets get going ...
@@ -589,7 +602,7 @@ window.app = { // Shouldn't have any functions defined.
 				}
 			});
 			req.addEventListener('loadend', function() {
-				console.debug('Open completed state: ' + that.readyState);
+				window.app.console.debug('Open completed state: ' + that.readyState);
 				that.openInflight--;
 			});
 			req.send('');
@@ -608,7 +621,7 @@ window.app = { // Shouldn't have any functions defined.
 				// Unless we are backed up.
 				if (that.msgInflight <= 3)
 				{
-					//console.debug('Have data to send, lowering poll interval.');
+					//window.app.console.debug('Have data to send, lowering poll interval.');
 					that.curPollMs = that.minPollMs;
 					that._setPollInterval(that.curPollMs);
 				}
@@ -627,7 +640,7 @@ window.app = { // Shouldn't have any functions defined.
 		};
 		this.close = function() {
 			var oldState = this.readyState;
-			console.debug('proxy: close socket');
+			window.app.console.debug('proxy: close socket');
 			this.readyState = 3;
 			this.onclose();
 			clearInterval(this.pollInterval);
@@ -644,7 +657,7 @@ window.app = { // Shouldn't have any functions defined.
 			var base = this.uri;
 			return base + '/' + this.sessionId + '/' + command + '/' + this.outSerial;
 		};
-		console.debug('proxy: new socket ' + this.id + ' ' + this.uri);
+		window.app.console.debug('proxy: new socket ' + this.id + ' ' + this.uri);
 
 		// queue fetch of session id.
 		this.getSessionId();
@@ -686,7 +699,7 @@ window.app = { // Shouldn't have any functions defined.
 				try {
 					rules = sheets[i].cssRules || sheets[i].rules;
 				} catch (err) {
-					console.log('Missing CSS from ' + sheets[i].href);
+					window.app.console.log('Missing CSS from ' + sheets[i].href);
 					continue;
 				}
 				replaceUrls(rules, replaceBase);
@@ -695,6 +708,10 @@ window.app = { // Shouldn't have any functions defined.
 	}
 
 	global.createWebSocket = function(uri) {
+		if ('processCoolUrl' in window) {
+			uri = window.processCoolUrl({ url: uri, type: 'ws' });
+		}
+
 		if (global.socketProxy) {
 			window.socketProxy = true;
 			return new global.ProxySocket(uri);
@@ -757,7 +774,7 @@ window.app = { // Shouldn't have any functions defined.
 
 	// Form a valid WS URL to the host with the given path.
 	global.makeWsUrl = function (path) {
-		console.assert(global.host.startsWith('ws'), 'host is not ws: ' + global.host);
+		window.app.console.assert(global.host.startsWith('ws'), 'host is not ws: ' + global.host);
 		return global.host + global.serviceRoot + path;
 	};
 
@@ -790,7 +807,7 @@ window.app = { // Shouldn't have any functions defined.
 
 	// Form a valid HTTP URL to the host with the given path.
 	global.makeHttpUrl = function (path) {
-		console.assert(global.webserver.startsWith('http'), 'webserver is not http: ' + global.webserver);
+		window.app.console.assert(global.webserver.startsWith('http'), 'webserver is not http: ' + global.webserver);
 		return global.webserver + global.serviceRoot + path;
 	};
 
@@ -805,7 +822,7 @@ window.app = { // Shouldn't have any functions defined.
 	global.hexEncode = function (string) {
 		var bytes = new TextEncoder().encode(string);
 		var hex = '0x';
-		for (i = 0; i < bytes.length; ++i) {
+		for (var i = 0; i < bytes.length; ++i) {
 			hex += bytes[i].toString(16);
 		}
 		return hex;
@@ -816,7 +833,7 @@ window.app = { // Shouldn't have any functions defined.
 		if (hex.startsWith('0x'))
 			hex = hex.substr(2);
 		var bytes = new Uint8Array(hex.length / 2);
-		for (i = 0; i < bytes.length; i++) {
+		for (var i = 0; i < bytes.length; i++) {
 			bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
 		}
 		return new TextDecoder().decode(bytes);
@@ -832,11 +849,11 @@ window.app = { // Shouldn't have any functions defined.
 		try {
 			global.socket = global.createWebSocket(websocketURI);
 		} catch (err) {
-			console.log(err);
+			window.app.console.log(err);
 		}
 	}
 
-	var lang = global.getParameterByName('lang');
+	var lang = encodeURIComponent(global.getParameterByName('lang'));
 	global.queueMsg = [];
 	if (window.ThisIsAMobileApp)
 		window.LANG = lang;
@@ -844,7 +861,7 @@ window.app = { // Shouldn't have any functions defined.
 		global.socket.onopen = function () {
 			if (global.socket.readyState === 1) {
 				var ProtocolVersionNumber = '0.1';
-				var timestamp = global.getParameterByName('timestamp');
+				var timestamp = encodeURIComponent(global.getParameterByName('timestamp'));
 				var msg = 'load url=' + encodeURIComponent(global.docURL);
 
 				var now0 = Date.now();
@@ -879,11 +896,11 @@ window.app = { // Shouldn't have any functions defined.
 		};
 
 		global.socket.onerror = function (event) {
-			console.log(event);
+			window.app.console.log(event);
 		};
 
 		global.socket.onclose = function (event) {
-			console.log(event);
+			window.app.console.log(event);
 		};
 
 		global.socket.onmessage = function (event) {

@@ -3,10 +3,11 @@ var helper = require('../../common/helper');
 var { insertMultipleComment } = require('../../common/desktop_helper');
 
 describe('Annotation Tests', function() {
-	var testFileName = 'annotation.ods';
+	var origTestFileName = 'annotation.ods';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'calc');
+		testFileName = helper.beforeAll(origTestFileName, 'calc');
 	});
 
 	afterEach(function() {
@@ -75,7 +76,7 @@ describe('Annotation Tests', function() {
 
 		cy.get('#comment-annotation-menu-1').click();
 
-		cy.contains('.context-menu-item','Reply').should('not.exist');
+		cy.get('.context-menu-list:visible .context-menu-item').should('not.have.text', 'Reply');
 	});
 
 	it('Remove',function() {

@@ -125,6 +125,9 @@ void removeJail(const std::string& root)
 
     // Unmount the tmp directory. Don't care if we fail.
     const std::string tmpPath = Poco::Path(root, "tmp").toString();
+#ifdef __FreeBSD__
+    unmount(tmpPath + "/dev");
+#endif
     FileUtil::removeFile(tmpPath, true); // Delete tmp contents with prejudice.
     unmount(tmpPath);
 
@@ -168,12 +171,21 @@ void cleanupJails(const std::string& root)
         for (const auto& jail : jails)
         {
             const Poco::Path path(root, jail);
+            // Postpone deleting "tmp" directory until we clean all the jails
+            // On FreeBSD the "tmp" dir contains a devfs moint point. Normally,
+            // it gets unmounted by coolmount during shutdown, but coolmount
+            // does nothing if it is called on the non-existing path.
+            // Removing this dir there prevents clean unmounting of devfs later.
+            if (jail == "tmp")
+                continue;
             // Delete tmp and link cache with prejudice.
-            if (jail == "tmp" || jail == "linkable")
+            if (jail == "linkable")
                 FileUtil::removeFile(path.toString(), true);
             else
                 cleanupJails(path.toString());
         }
+        const Poco::Path tmpPath(root, "tmp");
+        FileUtil::removeFile(tmpPath.toString(), true);
     }
 
     // Remove empty directories.
@@ -237,6 +249,7 @@ void setupJailDevNodes(const std::string& root)
         return;
     }
 
+#ifndef __FreeBSD__
     // Create the urandom and random devices.
     if (!Poco::File(root + "/dev/random").exists())
     {
@@ -261,6 +274,16 @@ void setupJailDevNodes(const std::string& root)
             LOG_SYS("mknod(" << root << "/dev/urandom) failed. Mount must not use nodev flag.");
         }
     }
+#else
+    if (!Poco::File(root + "/dev/random").exists())
+    {
+         const bool res = coolmount("-d", "", root + "/dev");
+         if (res)
+            LOG_TRC("Mounted devfs hierarchy -> [" << root << "/dev].");
+        else
+            LOG_ERR("Failed to mount devfs -> [" << root << "/dev].");
+    }
+#endif
 }
 
 /// The envar name used to control bind-mounting of systemplate/jails.
@@ -345,7 +368,7 @@ bool updateDynamicFilesImpl(const std::string& sysTemplate)
         const std::string srcFilename = FileUtil::realpath(dynFilename);
         if (srcFilename != dynFilename)
         {
-            LOG_DBG("Dynamic file [" << dynFilename << "] points to real path [" << srcFilename
+            LOG_TRC("Dynamic file [" << dynFilename << "] points to real path [" << srcFilename
                                      << "], which will be used instead.");
         }
 
@@ -360,7 +383,7 @@ bool updateDynamicFilesImpl(const std::string& sysTemplate)
         // Is it outdated?
         if (dstStat.isUpToDate(srcStat))
         {
-            LOG_DBG("File [" << dstFilename << "] is already up-to-date.");
+            LOG_TRC("File [" << dstFilename << "] is already up-to-date.");
             continue;
         }
 
@@ -369,7 +392,7 @@ bool updateDynamicFilesImpl(const std::string& sysTemplate)
         {
             disableBindMounting(); // We can't mount from incomplete systemplate that can't be updated.
             LinkDynamicFiles = false;
-            LOG_INF("The systemplate directory ["
+            LOG_WRN("The systemplate directory ["
                     << sysTemplate << "] is read-only, and at least [" << dstFilename
                     << "] is out-of-date. Will have to copy sysTemplate to jails. To restore "
                        "optimal performance, make sure the files in ["

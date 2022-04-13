@@ -157,7 +157,10 @@ void Session::parseDocOptions(const StringVector& tokens, int& part, std::string
         }
         else if (name == "lang")
         {
-            _lang = value;
+            if (value == "en")
+                _lang = "en-US";
+            else
+                _lang = value;
             ++offset;
         }
         else if (name == "watermarkText")
@@ -289,7 +292,7 @@ void Session::getIOStats(uint64_t &sent, uint64_t &recv)
 
 void Session::dumpState(std::ostream& os)
 {
-    os << "\t\tid: " << _id
+    os << "\n\t\tid: " << _id
        << "\n\t\tname: " << _name
        << "\n\t\tdisconnected: " << _disconnected
        << "\n\t\tisActive: " << _isActive

@@ -16,6 +16,7 @@
 #include <common/Common.hpp>
 #include <common/StringVector.hpp>
 #include <common/Log.hpp>
+#include <common/JailUtil.hpp>
 
 namespace Quarantine
 {
@@ -37,10 +38,10 @@ namespace Quarantine
         std::string decoded;
 
         std::sort(files.begin(), files.end());
-        for (auto file : files)
+        for (const auto& file : files)
         {
 
-            Util::tokenize(file.c_str(), file.size(), '_', tokens);
+            StringVector::tokenize(file.c_str(), file.size(), '_', tokens);
             Poco::URI::decode(file.substr(tokens[2]._index), decoded);
             COOLWSD::QuarantineMap[decoded].emplace_back(COOLWSD::QuarantinePath + file);
 
@@ -68,7 +69,7 @@ namespace Quarantine
         std::vector<std::string> files;
         Poco::File(COOLWSD::QuarantinePath).list(files);
         std::size_t size = 0;
-        for (auto file : files)
+        for (const auto& file : files)
         {
             FileUtil::Stat f(COOLWSD::QuarantinePath + file);
 
@@ -113,7 +114,7 @@ namespace Quarantine
         }
     }
 
-    void clearOldQuarantineVersions(std::string Wopiscr)
+    void clearOldQuarantineVersions(const std::string& Wopiscr)
     {
         if (!isQuarantineEnabled())
             return;
@@ -129,7 +130,7 @@ namespace Quarantine
 
     }
 
-    bool quarantineFile(DocumentBroker* docBroker, std::string docName)
+    bool quarantineFile(DocumentBroker* docBroker, const std::string& docName)
     {
         if (!isQuarantineEnabled())
             return false;
@@ -140,12 +141,35 @@ namespace Quarantine
         const auto timeNow = std::chrono::system_clock::now();
         const std::string ts = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(timeNow.time_since_epoch()).count());
 
-        std::string sourcefilePath = COOLWSD::ChildRoot + "tmp/cool-" + docBroker->getJailId() + "/user/docs/" + docBroker->getJailId() + "/" + docName;
+        std::string sourcefilePath;
+        if(JailUtil::isBindMountingEnabled())
+        {
+            sourcefilePath = COOLWSD::ChildRoot + "tmp/cool-" + docBroker->getJailId() +
+                             "/user/docs/" + docBroker->getJailId() + '/' + docName;
+        }
+        else
+        {
+            sourcefilePath = COOLWSD::ChildRoot + docBroker->getJailId() + "/tmp/user/docs/" +
+                             docBroker->getJailId() + '/' + docName;
+        }
 
-        std::string linkedFileName = ts + "_" + std::to_string(docBroker->getPid()) + "_" + docKey;
+        std::string linkedFileName = ts + '_' + std::to_string(docBroker->getPid()) + '_' + docKey + '_' + docName;
         std::string linkedFilePath = COOLWSD::QuarantinePath + linkedFileName;
 
-        FileUtil::Stat fileStat(linkedFilePath);
+        auto& fileList = COOLWSD::QuarantineMap[docBroker->getDocKey()];
+        if(!fileList.empty())
+        {
+            FileUtil::Stat sourceStat(sourcefilePath);
+            FileUtil::Stat lastFileStat(fileList[fileList.size()-1]);
+
+            if(lastFileStat.inodeNumber() == sourceStat.inodeNumber())
+            {
+                LOG_INF("Quarantining of file " << sourcefilePath << " to " << linkedFilePath
+                    << " is skipped because this file version is already quarantined.");
+                return false;
+            }
+        }
+
 
         makeQuarantineSpace();
 
@@ -153,7 +177,7 @@ namespace Quarantine
 
         if (result_link == 0)
         {
-            COOLWSD::QuarantineMap[docBroker->getDocKey()].emplace_back(linkedFilePath);
+            fileList.emplace_back(linkedFilePath);
             clearOldQuarantineVersions(docKey);
             makeQuarantineSpace();
 

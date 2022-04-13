@@ -323,9 +323,9 @@
       }
     },
     "@braintree/sanitize-url": {
-      "version": "4.0.1",
-      "resolved": "file:archived-packages/@braintree/sanitize-url-4.0.1-4c7210b55.tar",
-      "integrity": "sha512-3vKEuKCJIL4d2aVuwE1MdweAspwBYc+KaBAa0S4as2nXPRpvts7GdU8vtSstsHlC3esK5nf/RJrAT7PQ1+psbA== sha512-THIQtVN491hY2rTZ/h5boj0CwDKrZQIUnfaj6RbpGwRJKfmEIgNpgcCJC3KZl1Vux9bQmdE2P4Q7cYUoSUQ4MA==",
+      "version": "6.0.0",
+      "resolved": "file:archived-packages/@braintree/sanitize-url-6.0.0.tgz",
+      "integrity": "sha512-mgmE7XBYY/21erpzhexk4Cj1cyTQ9LzvnTxtzM17BJ7ERMNE6W72mQRo0I1Ud8eFJ+RVVIcBNhLFZ3GX4XFz5w==",
       "dev": true
     },
     "@iarna/cli": {
@@ -8020,7 +8020,7 @@
     "vex-js": {
       "version": "4.1.0",
       "resolved": "file:archived-packages/vex-js-4.1.0-9ff760927.tar",
-      "integrity": "sha512-t8cpwh28HrmrkcqqvFTJl+xjLuPnusW3Eb3zczPm2RzX0Q8HbjHiywq1+ttQL+tLVob80CaQYOmmFY8rhtPEug== sha512-n/dgknlD5CVl+Bn87kARnjwSknxZvSMflwzrBdgV0LLdLXpgmF6AKQ//bEEBBwK2JLXR0wG2R+il1zjcBtOi6Q==",
+      "integrity": "sha512-dCY//NzVfd5UmSGVLyoaIYEhZgeB8i3UoK/Ji4PfIf3OQnGs+BElehb1oYt00Gzr5XUkLv7bsHvQcGmQXdLteg==",
       "dev": true,
       "requires": {
         "classlist-polyfill": "1.2.0",

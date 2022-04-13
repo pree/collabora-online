@@ -5,10 +5,11 @@ var impressHelper = require('../../common/impress_helper');
 var desktopHelper = require('../../common/desktop_helper');
 
 describe('Top toolbar tests.', function() {
-	var testFileName = 'top_toolbar.odp';
+	var origTestFileName = 'top_toolbar.odp';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'impress');
+		testFileName = helper.beforeAll(origTestFileName, 'impress');
 
 		if (Cypress.env('INTEGRATION') === 'nextcloud') {
 			desktopHelper.hideSidebarIfVisible();
@@ -136,5 +137,45 @@ describe('Top toolbar tests.', function() {
 		impressHelper.triggerNewSVGForShapeInTheCenter();
 
 		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextParagraph .TextPosition').should('have.attr', 'x', '1400');
+	});
+
+	it('Apply superscript on selected text.', function() {
+		impressHelper.selectTextOfShape();
+
+		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextPosition')
+			.should('have.attr', 'y', '8643');
+
+		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextParagraph')
+			.should('have.attr', 'font-size', '1129px');
+
+		helper.typeIntoDocument('{ctrl}{shift}p');
+
+		impressHelper.triggerNewSVGForShapeInTheCenter();
+
+		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextPosition')
+			.should('have.attr', 'y', '8271');
+
+		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextParagraph')
+			.should('have.attr', 'font-size', '655px');
+	});
+
+	it('Apply subscript on selected text.', function() {
+		impressHelper.selectTextOfShape();
+
+		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextPosition')
+			.should('have.attr', 'y', '8643');
+
+		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextParagraph')
+			.should('have.attr', 'font-size', '1129px');
+
+		helper.typeIntoDocument('{ctrl}{shift}b');
+
+		impressHelper.triggerNewSVGForShapeInTheCenter();
+
+		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextPosition')
+			.should('have.attr', 'y', '8734');
+
+		cy.get('.leaflet-pane.leaflet-overlay-pane g.Page .TextParagraph')
+			.should('have.attr', 'font-size', '655px');
 	});
 });

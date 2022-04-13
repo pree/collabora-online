@@ -21,7 +21,7 @@
 	z-index: 2001;
 }
 
-.jsdialog.root-container {
+.jsdialog.root-container:not(.autofilter):not(.sidebar) {
 	margin: .5em 1em; /*same as in .ui-dialog */
 }
 
@@ -32,21 +32,44 @@
 
 .jsdialog-container.modalpopup {
 	border: 1px solid #a4a4a4 !important;
-	border-radius: 4px;
+	border-radius: var(--border-radius);
 	box-shadow: 0 -1px 2px 0 rgba(0, 0, 0, 0.15), 0 2px 2px 0 rgba(0, 0, 0, 0.1);
 }
 
 .jsdialog-container .ui-dialog-content {
-	background-color: white !important;
+	background-color: var(--color-main-background) !important;
 	font-family: var(--jquery-ui-font);
+	line-height: 1.5;
 }
 
 .jsdialog.vertical p, .ui-frame-label {
 	margin: 0px;
-	color: #666;
-	font-size: 10px;
-	font-weight: bold;
-	text-transform: uppercase;
+	color: var(--color-main-text);
+	font-size: var(--default-font-size);
+	line-height: var(--default-height);
+}
+#glowframe > div.ui-frame.jsdialog.sidebar > span,
+#softedgeframe > div.ui-frame.jsdialog.sidebar > span {
+	color: var(--color-main-text);
+	font-size: var(--header-font-size);
+	line-height: var(--header-height);
+	margin: 4px;
+}
+
+#accessibilityCheckBox .jsdialog.ui-text {
+	margin: 0;
+	padding-inline-end: 112px;
+	color: var(--color-main-text);
+	font-size: var(--default-font-size);
+	text-transform: none;
+}
+
+.lokdialog_container.ui-dialog.ui-widget-content, .autofilter-container {
+	border: 1px solid var(--color-border-dark);
+	-webkit-box-shadow: 0 0 3px var(--color-border);
+	box-shadow: 0 0 3px var(--color-box-shadow);
+	border-radius: calc(var(--border-radius)/2);
+	background: var(--color-background-darker);
 }
 
 .jsdialog.ui-separator.vertical {
@@ -61,19 +84,12 @@
 }
 
 .jsdialog.ui-separator.horizontal {
-	width: 100%;
 	padding-top: 6px;
-	/* border-left: 1px dashed #888; */
-	background-image: linear-gradient(#888 22%, rgba(255,255,255,0) 0%);
-	background-position: center top;
-	background-size: 14px 1px;
-	background-repeat: repeat-x;
-	box-shadow: inset 0 34px 0 0 white;
 }
 
 td.jsdialog:hover *,
 #table-box3:hover p {
-	color: #333;
+	color: var(--color-text-darker);
 }
 
 .jsdialog.row {
@@ -85,17 +101,17 @@ td.jsdialog:hover *,
 	vertical-align: middle;
 }
 
-td.jsdialog .jsdialog.cell,
+td.jsdialog .jsdialog.cell:not(.sidebar),
 [id^='table-dialog-action_area'] .jsdialog.cell{
 	padding: 4px;
 }
 
 .jsdialog.vertical:not(.sidebar) {
-	width: max-content;
+	width: 100%;
 }
 
 .jsdialog.vertical:not([id^='table-dialog-action_area']) > .jsdialog.row,
-td.jsdialog > [id^='table-box'] {
+td.jsdialog > [id^='table-box']:not(.sidebar) {
 	display: table;
 	width: 100%;
 }
@@ -107,14 +123,26 @@ td.jsdialog > [id^='table-box'] {
 
 .jsdialog.ui-grid {
 	border-spacing: 0px;
+	width: 100%;
+}
+
+/* Scrollwindow - used eg. in accessibility check in writer */
+.jsdialog.ui-scrollwindow {
+	overflow: scroll;
+	max-height: 500px;
+	max-width: 700px;
+}
+
+/* AccessibilityCheckDialog hack to prevent huge height in Firefox */
+#AccessibilityCheckDialog .cell {
+	vertical-align: unset !important;
 }
 
 /* Tabs */
 .jsdialog-tabs {
 	display: inline-flex;
 	width: 100%;
-	background: white;
-	background: var(--white-bg-color);
+	background: var(--color-main-background);
 }
 
 .jsdialog-tabs:empty {
@@ -127,11 +155,11 @@ td.jsdialog > [id^='table-box'] {
 
 .ui-tab.jsdialog {
 	float: left;
-	font-size: 12pt;
+	font-size: var(--default-font-size);
 	font-family: var(--cool-font);
 	line-height: normal;
 	color: dimgray;
-	color: var(--gray-light-txt--color);
+	color: var(--color-text-lighter);
 	height: 32px;
 	display: flex;
 	align-items: center;
@@ -143,20 +171,20 @@ td.jsdialog > [id^='table-box'] {
 }
 
 .ui-tab.selected.jsdialog {
-	background: var(--gray-light-bg-color);
-	color: var(--gray-light-txt--color);
+	background-color: var(--color-background-lighter);
+	color: var(--color-text-lighter);
 }
 
 .ui-tab.jsdialog:hover {
 	cursor: pointer;
-	background: var(--gray-light-bg-color);
-	color: var(--gray-light-txt--color);
+	background-color: var(--color-background-darker);
+	color: var(--color-text-darker);
 }
 
 /* Expander */
 
 .jsdialog.ui-expander {
-	box-shadow: 0 1px 0px 0 #f1f1f1;
+	box-shadow: 0 1px 0px 0 var(--color-border-lighter);
 }
 
 #options.ui-expander {
@@ -169,9 +197,10 @@ td.jsdialog > [id^='table-box'] {
 
 .ui-expander-label::before,
 .ui-treeview-expandable.collapsed > .ui-treeview-expander::before {
+	display: inline-block;
 	content: 'V';
 	color: transparent;
-	margin-right: 7px;
+	margin-inline-end: 7px;
 	background: transparent url('images/lc_menu_chevron.svg') no-repeat center right;
 	filter: brightness(0.5);
 }
@@ -180,19 +209,16 @@ td.jsdialog > [id^='table-box'] {
 .ui-treeview-expandable:not(.collapsed) > .ui-treeview-expander::before  {
 	content: 'V';
 	color: transparent;
-	margin: 0px;
-	position: absolute;
+	margin-inline-end: 7px;
 	transform: rotate(90deg);
-	left: 16px;
 	background: transparent url('images/lc_menu_chevron.svg') no-repeat center;
 	filter: brightness(0.5);
 }
 
 .ui-treeview-expandable > .ui-treeview-expander::before {
-	margin-right: 6px !important;
+	margin-inline-end: 7px !important;
 	display: inline-block;
 	position: relative !important;
-	left: 0px !important;
 }
 
 .ui-expander-label.expanded {
@@ -213,25 +239,28 @@ td.jsdialog > [id^='table-box'] {
 }
 
 .ui-expander-content > .root-container.jsdialog {
-	margin: 4px 0px;
+	margin: 4px;
 }
 /* TreeView */
 
 .ui-treeview {
 	display: block;
-	border: 1px solid silver;
-	border-radius: 2px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--border-radius);
 	overflow-y: auto;
 	overflow-x: hidden;
 	max-width: 1000px;
 }
 
 .ui-treeview.disabled {
-	background-color: silver;
-	color: var(--gray-light-txt--color) !important;
+	background-color: var(--color-background-lighter);
+	color: var(--color-text-lighter) !important;
 }
 
 .ui-treeview-body {
+	color: var(--color-main-text);
+	font-size: var(--default-font-size);
+	line-height: var(--default-height);
 	display: block;
 	min-height: 100px;
 	min-width: 100px;
@@ -263,6 +292,7 @@ td.jsdialog > [id^='table-box'] {
 
 .ui-treeview-entry:not(.autofilter) {
 	padding-left: 2px;
+	background-color: var(--color-background-lighter);
 }
 
 input[type='checkbox'].autofilter, .jsdialog input[type='checkbox'] {
@@ -294,11 +324,16 @@ input[type='checkbox']:checked.autofilter, .jsdialog input[type='checkbox']:chec
 	padding-left: 20px;
 }
 
-.ui-treeview-entry:hover,
 .ui-treeview-entry.selected,
-.ui-listview-entry:hover,
 .ui-listview-entry.selected {
-	background-color: silver;
+	background-color: var(--color-background-dark);
+	color: var(--color-text-dark);
+}
+
+.ui-treeview-entry:hover,
+.ui-listview-entry:hover {
+	background-color: var(--color-background-darker);
+	color: var(--color-text-darker);
 }
 
 #mobile-wizard .ui-treeview-body input[type='checkbox'] {
@@ -313,11 +348,37 @@ input[type='checkbox']:checked.autofilter, .jsdialog input[type='checkbox']:chec
 	border: 1px solid #888;
 	box-shadow: 0 0 2px 0 #777;
 }
+
+/* context menu */
+.context-menu-list {
+	background: var(--color-background-lighter);
+	border: 1px solid var(--color-border-dark);
+	border-radius: var(--border-radius);
+	-webkit-box-shadow: 0 0 3px var(--color-box-shadow);
+	box-shadow: 0 0 3px var(--color-box-shadow);
+}
+.context-menu-item {
+	color: var(--color-main-text);
+	background-color: transparent;
+}
+.context-menu-separator {
+	border-bottom: 1px solid var(--color-border-lighter);
+}
+
+.context-menu-item.context-menu-disabled {
+	color: var(--color-text-lighter);
+	background-color: var(--color-background-lighter);
+}
 /* input text */
 
 .jsdialog.ui-edit {
+	color: var(--color-text-dark);
+	background-color: var(--color-background-dark);
 	line-height: 28px;
 	max-height: 32px;
+	width: 100%;
+	border: 1px solid var(--color-border-dark);
+	border-radius: var(--border-radius);
 }
 
 #search_edit.ui-edit.autofilter {
@@ -325,6 +386,10 @@ input[type='checkbox']:checked.autofilter, .jsdialog input[type='checkbox']:chec
 	width: -moz-available;
 	width: -webkit-fill-available;
 	width: fill-available;
+	margin-top: 8px;
+	border-radius: 0;
+	border-left: none;
+	border-right: none;
 }
 /* checkbox */
 
@@ -335,17 +400,19 @@ input[type='checkbox']:checked.autofilter, .jsdialog input[type='checkbox']:chec
 .jsdialog.checkbutton input,
 .jsdialog.checkbutton label {
 	vertical-align: middle;
+	font-size: var(--default-font-size);
 }
 
 .jsdialog.checkbutton label {
 	padding: 0px 2px;
+	line-height: 28px;
+	color: var(--color-main-text);
 }
-
 /* Radio button */
 
 .jsdialog input[type='radio'] {
 	vertical-align: middle;
-	margin: 0px 4px 0px 0px;
+	margin: 0px 3px 0px 2px;
 }
 
 .jsdialog .radiobutton > label {
@@ -353,7 +420,7 @@ input[type='checkbox']:checked.autofilter, .jsdialog input[type='checkbox']:chec
 }
 
 .jsdialog input[type='radio'][disabled='disabled'] ~ label {
-	color: var(--gray-light-txt--color);
+	color: var(--color-text-lighter);
 }
 /* spinfield (number) */
 input[type='number'] {
@@ -381,10 +448,10 @@ input[type='number']:hover::-webkit-outer-spin-button {
 	min-width: 100px;
 	height: 32px;
 	line-height: normal;
-	font-size: 14px;
+	font-size: calc(var(--default-font-size)*1.2);
 	font-family: var(--jquery-ui-font);
 	border: 1px solid #CCC;
-	border-radius: 3px;
+	border-radius: var(--border-radius);
 	padding-right: 2em;
 	padding-left: 0.4em;
 	margin: 2px 0px;
@@ -408,13 +475,12 @@ input[type='number']:hover::-webkit-outer-spin-button {
 	background: url('images/jquery-ui-lightness/ui-icons_222222_256x240.png') no-repeat transparent;
 	background-position: -67px -18px;
 	display: inline-block;
+	position: relative;
 	width: 11px;
 	height: 11px;
-	position: relative;
-	top: 1px;
-	left: -16px;
 	cursor: pointer;
 	pointer-events: none;
+	margin-inline-start: -16px;
 }
 
 .ui-listbox[disabled='disabled'] ~ .ui-listbox-arrow {
@@ -427,7 +493,7 @@ input[type='number']:hover::-webkit-outer-spin-button {
 /* Icon View */
 
 .ui-iconview {
-	overflow: scroll;
+	overflow: auto;
 	display: inline-flex;
 	display: -ms-inline-flexbox;
 	flex-wrap: wrap;
@@ -450,12 +516,20 @@ input[type='number']:hover::-webkit-outer-spin-button {
 	position: relative;
 	flex-direction: row;
 	align-self: center;
-	border: 2px solid transparent;
-	border-radius: 3px;
+	border: 1px solid transparent;
+	border-radius: var(--border-radius);
+	padding-top: 5px;
 }
 
 .ui-iconview-entry.selected {
-	border: 2px solid gray;
+	border: 1px solid var(--color-border-dark);
+	border-radius: var(--border-radius);
+	background-color: var(--color-background-dark);
+}
+
+.ui-iconview-entry:hover {
+	border: 1px solid var(--color-border-darker);
+	background-color: var(--color-background-darker);
 }
 
 /* Autofilter dropdown */
@@ -471,14 +545,24 @@ input[type='number']:hover::-webkit-outer-spin-button {
 }
 
 .autofilter-container {
-	background-color: white;
-	border: solid 1px silver;
+	background-color: var(--color-main-background);
+	border: 1px solid var(--color-border);
 	position: absolute;
 	z-index: 1105;
-	padding: 10px;
+	padding: 0;
 	font-family: var(--jquery-ui-font);
 }
 
+.autofilter-container > .root-container,
+.autofilter-container .cell,
+.autofilter-container .row {
+	margin: 0;
+	padding: 0;
+}
+
+.autofilter-container .ui-treeview {
+	border: none;
+}
 .autofilter-container #menu.ui-treeview .ui-treeview-body {
 	height: auto;
 	width: 100%;
@@ -499,8 +583,9 @@ input[type='number']:hover::-webkit-outer-spin-button {
 }
 
 .autofilter-container #select_current {
-	height: 16px;
-	width: 16px;
+	/* Same size as #toggle_all.checkbutton > input */
+	height: 18px;
+	width: 18px;
 	margin: 8px;
 	border: none;
 }
@@ -511,12 +596,17 @@ input[type='number']:hover::-webkit-outer-spin-button {
 }
 
 .autofilter-container #unselect_current {
-	height: 16px;
-	width: 16px;
+	/* Same size as #toggle_all.checkbutton > input */
+	height: 18px;
+	width: 18px;
 	margin: 8px 8px 8px 0px;
 	border: none;
 }
 
+.autofilter-container #unselect_current img,
+.autofilter-container #select_current img {
+	display: none;
+}
 
 .autofilter-container #toggle_all.checkbutton > label,
 .autofilter-container #toggle_all.checkbutton > input {
@@ -612,14 +702,14 @@ input[type='number']:hover::-webkit-outer-spin-button {
 
 #MacroWarnMedium p {
 	max-width: 400px;
-	color: #333;
+	color: var(--color-main-text);
 	text-transform: none;
 }
 
 #MacroSelectorDialog #helpmacro {
 	margin-bottom: 8px;
 	text-transform: none;
-	font-size: 12px;
+	font-size: var(--default-font-size);
 }
 
 #MacroSelectorDialog #table-box2 {
@@ -661,42 +751,44 @@ input[type='number']:hover::-webkit-outer-spin-button {
 #MacroSelectorDialog #categories {
 	box-sizing: border-box;
 	border-color: transparent;
-	padding-right: 8px
+	padding-right: 12px
 }
 
 #MacroSelectorDialog #categories .ui-treeview-entry.selected {
-	color: #222;
-	background-color: #dfdfdf;
-	border-radius: 3px;
-	border-bottom-right-radius: 8px;
-	border-top-right-radius: 8px;
+	color: var(--color-text-dark);
+	background-color: var(--color-background-dark);
 }
 
 #MacroSelectorDialog #categories .ui-treeview-entry.selected::after {
 	margin-right: -6px;
 	margin-right: -11px;
-	color: #dfdfdf;
+	color: var(--color-border-darker);
 	content: '\23F5';
-	font-size: 16px;
+	font-size: var(--header-font-size);
 }
 
 #MacroSelectorDialog #categories .ui-treeview-entry {
-	color: #555;
+	color: var(--color-main-text);
 }
 
 #MacroSelectorDialog #categories .ui-treeview-entry:hover {
-	box-shadow: inset -6px 0 0 white;
+	box-shadow: inset -6px 0 0 var(--color-border-darker);
 }
 
 #MacroSelectorDialog #categories > tbody > ul > li > ul .ui-treeview-expandable.selected > .ui-treeview::before {
 	/* visibility: hidden; hide when javascript sets properly expanders*/
 }
-#MacroSelectorDialog #categories .ui-treeview-entry:hover, .ui-treeview-entry.selected, .ui-listview-entry:hover, .ui-listview-entry.selected {
-	background-color: #dfdfdf;
+#MacroSelectorDialog #categories .ui-treeview-entry.selected, .ui-listview-entry, .ui-listview-entry.selected {
+	background-color: var(--color-background-dark);
+	color: var(--color-text-dark);
+}
+#MacroSelectorDialog #categories .ui-treeview-entry:hover, .ui-treeview-entry.selected:hover, .ui-listview-entry:hover, .ui-listview-entry.selected:hover {
+	background-color: var(--color-background-darker);
+	color: var(--color-text-darker);
 }
 
 #MacroSelectorDialog #table-frame3 .jsdialog.ui-treeview-entry {
-	padding-left: 8px;
+	padding-left: 12px;
 }
 
 /* color selector */
@@ -705,9 +797,9 @@ input[type='number']:hover::-webkit-outer-spin-button {
 	width: 24px;
 	position: relative;
 	top: -6px;
-	border: 1px solid var(--gray-color);
+	border: 1px solid var(--color-border-dark);
 	border-radius: 7px;
-	outline: 1px solid white;
+	outline: 1px solid var(--color-background-lighter);
 }
 
 /* dropdown arrow */
@@ -717,31 +809,42 @@ input[type='number']:hover::-webkit-outer-spin-button {
 	font-size: 0;
 	line-height: 0;
 	border: 4px solid transparent;
-	border-top: 5px solid var(--gray-light-txt--color);
-	display: inline-block;
+	border-top: 5px solid var(--color-main-text);
+	display: inline-block !important;
 	margin-left: 3px;
+}
+
+.unoarrow:hover, .menubutton .arrow:hover {
+	border-top: 5px solid var(--color-text-darker);
 }
 
 .arrowbackground {
 	width: 15px;
 	height: 23px;
 	display: inline-block;
+	border-left: 1px solid transparent;
+	background-color: transparent;
 }
 
 .arrowbackground:hover {
-	border: 1px solid lightgrey;
+	border-left-color: transparent;
+	background-color: transparent;
+}
+
+.unoarrow:hover, .arrowbackground:hover .unoarrow {
+	border-top-color: var(--color-text-darker);
 }
 
 /* menu button */
 .jsdialog.menubutton {
 	line-height: normal;
-	font-size: 14px;
+	font-size: calc(var(--default-font-size)*1.2);
 	font-family: var(--jquery-ui-font);
-	border: 1px solid #CCC;
-	border-radius: 3px;
+	border: 1px solid var(--color-border-dark);
+	border-radius: var(--border-radius);
 	padding: 8px 10px;
 	margin: 2px 0px;
-	background-color: #F1F1F1;
+	background-color: var(--color-background-dark);
 }
 
 .menubutton span {
@@ -783,7 +886,7 @@ input[type='number']:hover::-webkit-outer-spin-button {
 #busypopup.jsdialog-container {
 	min-width: 200px;
 	min-height: 100px;
-	background: white;
+	background: var(--color-background-lighter);
 }
 
 #busypopup .lokdialog {
@@ -983,7 +1086,7 @@ input[type='number']:hover::-webkit-outer-spin-button {
 .snackbar.jsdialog-container .ui-dialog-content {
 	min-width: 200px;
 	background-color: #565f77 !important;
-	border-radius: 4px !important;
+	border-radius: var(--border-radius) !important;
 }
 
 .snackbar.jsdialog-container .lokdialog.ui-dialog-content.ui-widget-content {
@@ -995,7 +1098,7 @@ input[type='number']:hover::-webkit-outer-spin-button {
 #mobile-wizard.popup.snackbar #label-no-action,
 .snackbar.jsdialog-container #label-no-action {
 	color: white !important;
-	font-size: 14px !important;
+	font-size: var(--header-font-size) !important;
 	margin: 0px !important;
 	border-bottom: none !important;
 	padding-left: 12px;

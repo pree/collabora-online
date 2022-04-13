@@ -5,10 +5,11 @@ var mobileHelper = require('../../common/mobile_helper');
 var impressHelper = require('../../common/impress_helper');
 
 describe('Impress insertion wizard.', function() {
-	var testFileName = 'insertion_wizard.odp';
+	var origTestFileName = 'insertion_wizard.odp';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'impress');
+		testFileName = helper.beforeAll(origTestFileName, 'impress');
 
 		mobileHelper.enableEditingMobile();
 	});
@@ -156,7 +157,7 @@ describe('Impress insertion wizard.', function() {
 			.should('exist');
 
 		// Type text and link
-		cy.get('.vex-content.hyperlink-dialog input[name="text"]')
+		cy.get('.vex-content.hyperlink-dialog textarea[name="text"]')
 			.type('some text');
 		cy.get('.vex-content.hyperlink-dialog input[name="link"]')
 			.type('www.something.com');
@@ -353,7 +354,7 @@ describe('Impress insertion wizard.', function() {
 			.should('exist');
 
 		// Type text and link
-		cy.get('.vex-content.hyperlink-dialog input[name="text"]')
+		cy.get('.vex-content.hyperlink-dialog textarea[name="text"]')
 			.type('some text');
 		cy.get('.vex-content.hyperlink-dialog input[name="link"]')
 			.type('www.something.com');
@@ -510,10 +511,10 @@ describe('Impress insertion wizard.', function() {
 		impressHelper.assertNumberOfSlidePreviews(2);
 
 		if (Cypress.env('INTEGRATION') !== 'nextcloud') {
-			cy.get('#tb_actionbar_item_closemobile')
+			cy.get('#toolbar-mobile-back')
 				.click();
 
-			cy.contains('.leaflet-control-zoom-in', '+')
+			cy.get('.leaflet-control-zoom-in')
 				.should('not.exist');
 		}
 	});

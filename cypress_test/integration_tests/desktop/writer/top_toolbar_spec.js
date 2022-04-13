@@ -1,4 +1,4 @@
-/* global describe it cy beforeEach require afterEach Cypress */
+/* global describe it cy beforeEach expect require afterEach Cypress */
 
 var helper = require('../../common/helper');
 var desktopHelper = require('../../common/desktop_helper');
@@ -6,10 +6,11 @@ var writerHelper = require('../../common/writer_helper');
 var mode = Cypress.env('USER_INTERFACE');
 
 describe('Top toolbar tests.', function() {
-	var testFileName = 'top_toolbar.odt';
+	var origTestFileName = 'top_toolbar.odt';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'writer');
+		testFileName = helper.beforeAll(origTestFileName, 'writer');
 
 		if (Cypress.env('INTEGRATION') === 'nextcloud') {
 			desktopHelper.showSidebarIfHidden();
@@ -46,7 +47,7 @@ describe('Top toolbar tests.', function() {
 
 	it('Apply style.', function() {
 		if (mode === 'notebookbar') {
-			cy.contains('.notebookbar.ui-iconview-entry','Title')
+			cy.get('.notebookbar.ui-iconview-entry img[title=Title]')
 				.click({force: true});
 		} else {
 			cy.get('#tb_editbar_item_styles')
@@ -58,7 +59,6 @@ describe('Top toolbar tests.', function() {
 		cy.get('#copy-paste-container p font font')
 			.should('have.attr', 'style', 'font-size: 28pt');
 	});
-
 
 	it('Apply font name.', function() {
 		desktopHelper.actionOnSelector('fontName', (selector) => { cy.get(selector).click(); });
@@ -279,7 +279,7 @@ describe('Top toolbar tests.', function() {
 		cy.get('#annotation-content-area-1').should('contain','some text0');
 	});
 
-	it('Insert table.', function() {
+	it('Insert/delete table.', function() {
 		cy.get('#toolbar-up .w2ui-scroll-right')
 			.click();
 
@@ -292,17 +292,24 @@ describe('Top toolbar tests.', function() {
 		cy.get('.inserttable-grid > .row > .col').eq(3)
 		   .click();
 
-		// Move cursor outside of the table to make selection work.
-		helper.moveCursor('down');
-		writerHelper.selectAllTextOfDoc();
+		helper.typeIntoDocument('{ctrl}a');
 
 		cy.get('#copy-paste-container table')
 			.should('exist');
+
+		helper.typeIntoDocument('{ctrl}a');
+
+		helper.typeIntoDocument('{shift}{del}');
+
+		cy.get('.leaflet-marker-icon.table-column-resize-marker')
+			.should('not.exist');
 	});
 
 	it('Insert image.', function() {
 		cy.get('#toolbar-up .w2ui-scroll-right')
 			.click();
+
+		mode === 'notebookbar' ? cy.get('#toolbar-up .w2ui-scroll-right').click() : '';
 
 		desktopHelper.actionOnSelector('insertGraphic', (selector) => { cy.get(selector).click(); });
 
@@ -315,7 +322,7 @@ describe('Top toolbar tests.', function() {
 
 	it('Insert hyperlink.', function() {
 		cy.get('#copy-paste-container p')
-			.should('have.text', '\ntext');
+			.should('have.text', '\ntext text1');
 
 		mode === 'notebookbar' ? cy.get('#Insert-tab-label').click() : '';
 
@@ -333,19 +340,19 @@ describe('Top toolbar tests.', function() {
 		cy.get('#hyperlink-link-box')
 			.type('www.something.com');
 
-		cy.get('.vex-dialog-button-primary.vex-dialog-button.vex-first')
+		cy.get('.vex-dialog-button-primary.vex-dialog-button')
 			.click();
 
 		writerHelper.selectAllTextOfDoc();
 
 		cy.get('#copy-paste-container p')
-			.should('have.text', '\ntextlink');
+			.should('have.text', '\ntext text1link');
 
 		cy.get('#copy-paste-container p a')
 			.should('have.attr', 'href', 'http://www.something.com/');
 	});
 
-	it('Insert shape.', function() {
+	it('Insert/delete shape.', function() {
 
 		mode === 'notebookbar' ? cy.get('#Insert-tab-label').click() : '';
 
@@ -359,9 +366,15 @@ describe('Top toolbar tests.', function() {
 
 		cy.get('.leaflet-pane.leaflet-overlay-pane svg g')
 			.should('exist');
+
+		//delete
+		helper.typeIntoDocument('{del}');
+
+		cy.get('.leaflet-control-buttons-disabled path.leaflet-interactive')
+			.should('not.exist');
 	});
 
-	it('Insert chart.', function() {
+	it('Insert/delete chart.', function() {
 		mode === 'notebookbar' ? cy.get('#Insert-tab-label').click() : '';
 
 		cy.get('#toolbar-up .w2ui-scroll-right')
@@ -371,6 +384,12 @@ describe('Top toolbar tests.', function() {
 
 		cy.get('.leaflet-pane.leaflet-overlay-pane svg g')
 			.should('exist');
+
+		//delete
+		helper.typeIntoDocument('{del}');
+
+		cy.get('.leaflet-control-buttons-disabled path.leaflet-interactive')
+			.should('not.exist');
 	});
 
 	it.skip('Save.', function() {
@@ -378,7 +397,7 @@ describe('Top toolbar tests.', function() {
 
 		desktopHelper.actionOnSelector('save', (selector) => { cy.get(selector).click(); });
 
-		helper.beforeAll(testFileName, 'writer', true);
+		helper.reload(testFileName, 'writer', true);
 
 		cy.wait(2000);
 
@@ -392,7 +411,7 @@ describe('Top toolbar tests.', function() {
 
 	it('Print', function() {
 		// A new window should be opened with the PDF.
-		cy.window()
+		helper.getCoolFrameWindow()
 			.then(function(win) {
 				cy.stub(win, 'open');
 			});
@@ -401,7 +420,10 @@ describe('Top toolbar tests.', function() {
 
 		desktopHelper.actionOnSelector('print', (selector) => { cy.get(selector).click(); });
 
-		cy.window().its('open').should('be.called');
+		helper.getCoolFrameWindow()
+			.then(function(win) {
+				cy.wrap(win).its('open').should('be.called');
+			});
 	});
 
 	it('Apply Undo/Redo.', function() {
@@ -535,5 +557,135 @@ describe('Top toolbar tests.', function() {
 		// Full word should have bold font.
 		cy.get('#copy-paste-container p b')
 			.should('contain', 'text');
+	});
+
+	it('Insert Page Break', function() {
+		cy.get('#StatePageNumber')
+			.should('have.text', 'Page 1 of 1');
+
+		helper.selectAllText();
+
+		helper.expectTextForClipboard('text text1');
+
+		helper.typeIntoDocument('{end}');
+
+		helper.typeIntoDocument('{ctrl}{leftarrow}');
+
+		if (mode === 'notebookbar') {
+			cy.get('#Insert-tab-label').click();
+
+			cy.get('.unospan-Insert.unoInsertPagebreak')
+				.click();
+		} else {
+			cy.get('#menu-insert').click();
+
+			cy.contains('[role=menuitem]', 'Page Break')
+				.click();
+		}
+
+		cy.get('#StatePageNumber')
+			.should('have.text', 'Page 2 of 2');
+
+		helper.selectAllText();
+
+		var data = [];
+		var expectedData = ['\ntext \n', '\ntext1'];
+
+		helper.waitUntilIdle('#copy-paste-container');
+
+		cy.get('#copy-paste-container').find('p').each($el => {
+			cy.wrap($el)
+				.invoke('text')
+				.then(text => {
+					data.push(text);
+				});
+			cy.log(data);
+		}).then(() => expect(data).to.deep.eq(expectedData));
+
+	});
+
+	it('Apply superscript.', function() {
+		writerHelper.selectAllTextOfDoc();
+
+		if (mode == 'notebookbar') {
+			cy.get('.unospan-Home.unoSuperScript')
+				.click();
+		} else {
+			// classic mode doesnot have superscript button
+			helper.typeIntoDocument('{ctrl}{shift}p');
+		}
+
+		cy.get('.leaflet-layer').click('center');
+
+		writerHelper.selectAllTextOfDoc();
+
+		cy.get('#copy-paste-container p sup')
+			.should('exist');
+	});
+
+	it('Apply subscript.', function() {
+		writerHelper.selectAllTextOfDoc();
+
+		if (mode == 'notebookbar') {
+			cy.get('.unospan-Home.unoSubScript')
+				.click();
+		} else {
+			// classic mode doesnot have subscript button
+			helper.typeIntoDocument('{ctrl}{shift}b');
+		}
+
+		cy.get('.leaflet-layer').click('center');
+
+		writerHelper.selectAllTextOfDoc();
+
+		cy.get('#copy-paste-container p sub')
+			.should('exist');
+	});
+
+	it('Delete Text', function() {
+		helper.selectAllText();
+
+		helper.expectTextForClipboard('text text1');
+
+		helper.typeIntoDocument('{del}');
+
+		helper.typeIntoDocument('{ctrl}a');
+
+		helper.textSelectionShouldNotExist();
+	});
+
+	it('Insert/delete Fontwork', function() {
+		writerHelper.selectAllTextOfDoc();
+
+		if (mode == 'notebookbar')
+		{
+			cy.get('#Insert-tab-label')
+				.click();
+
+			cy.get('#toolbar-up .w2ui-scroll-right')
+				.click();
+
+			cy.get('.unospan-Insert.unoFontworkGalleryFloater')
+				.click();
+		}
+		else
+		{
+			cy.get('#menu-insert')
+				.click()
+				.contains('a','Fontwork...')
+				.click();
+		}
+
+		cy.get('#ok')
+			.click();
+
+		cy.get('.leaflet-control-buttons-disabled path.leaflet-interactive')
+			.should('exist');
+
+		//delete
+		helper.typeIntoDocument('{del}');
+
+		cy.get('.leaflet-control-buttons-disabled path.leaflet-interactive')
+			.should('not.exist');
 	});
 });

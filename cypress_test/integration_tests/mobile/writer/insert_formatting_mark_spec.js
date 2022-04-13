@@ -5,10 +5,11 @@ var mobileHelper = require('../../common/mobile_helper');
 var writerHelper = require('../../common/writer_helper');
 
 describe('Insert formatting mark via insertion wizard.', function() {
-	var testFileName = 'insert_formatting_mark.odt';
+	var origTestFileName = 'insert_formatting_mark.odt';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'writer');
+		testFileName = helper.beforeAll(origTestFileName, 'writer');
 
 		// Click on edit button
 		mobileHelper.enableEditingMobile();
@@ -72,6 +73,9 @@ describe('Insert formatting mark via insertion wizard.', function() {
 			.click();
 
 		writerHelper.selectAllTextOfDoc();
+
+		cy.get('#copy-paste-container p')
+			.should('exist');
 
 		cy.get('#copy-paste-container p')
 			.should('contain.text', '\u2060');

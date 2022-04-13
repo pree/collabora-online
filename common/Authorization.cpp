@@ -8,13 +8,11 @@
 #include <config.h>
 
 #include "Authorization.hpp"
-#include "Protocol.hpp"
 #include "Log.hpp"
-#include <Exceptions.hpp>
+#include "StringVector.hpp"
 
-#include <cstdlib>
-#include <cassert>
-#include <regex>
+#include <Poco/Net/HTTPRequest.h>
+#include <Poco/URI.h>
 
 void Authorization::authorizeURI(Poco::URI& uri) const
 {
@@ -52,7 +50,7 @@ void Authorization::authorizeRequest(Poco::Net::HTTPRequest& request) const
             //   X-Something-Custom: Huh
             // Split based on \n's or \r's and trim, to avoid nonsense in the
             // headers
-            StringVector tokens(Util::tokenizeAnyOf(_data, "\n\r"));
+            StringVector tokens(StringVector::tokenizeAnyOf(_data, "\n\r"));
             for (auto it = tokens.begin(); it != tokens.end(); ++it)
             {
                 std::string token = tokens.getParam(*it);
@@ -86,11 +84,11 @@ void Authorization::authorizeRequest(Poco::Net::HTTPRequest& request) const
     }
 }
 
-Authorization Authorization::create(const Poco::URI::QueryParameters& queryParams)
+Authorization Authorization::create(const Poco::URI& uri)
 {
     // prefer the access_token
     std::string decoded;
-    for (const auto& param : queryParams)
+    for (const auto& param : uri.getQueryParameters())
     {
         if (param.first == "access_token")
         {
@@ -107,5 +105,7 @@ Authorization Authorization::create(const Poco::URI::QueryParameters& queryParam
 
     return Authorization();
 }
+
+Authorization Authorization::create(const std::string& uri) { return create(Poco::URI(uri)); }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

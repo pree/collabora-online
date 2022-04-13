@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
+#include <chrono>
 #include <config.h>
 
 #include <memory>
@@ -35,7 +36,7 @@ void getPartHashCodes(const std::string& testname, const std::string& response,
     TST_LOG("Reading parts from [" << response << "].");
 
     // Expected format is something like 'type= parts= current= width= height= viewid= [hiddenparts=]'.
-    StringVector tokens(Util::tokenize(line, ' '));
+    StringVector tokens(StringVector::tokenize(line, ' '));
 #if defined CPPUNIT_ASSERT_GREATEREQUAL
     CPPUNIT_ASSERT_GREATEREQUAL(static_cast<size_t>(7), tokens.size());
 #else
@@ -83,12 +84,16 @@ class UnitInsertDelete : public UnitWSD
     TestResult testCursorPosition();
 
 public:
+    UnitInsertDelete()
+        : UnitWSD("UnitInsertDelete")
+    {
+    }
+
     void invokeWSDTest() override;
 };
 
 UnitBase::TestResult UnitInsertDelete::testInsertDelete()
 {
-    const char* testname = "insertDelete ";
     try
     {
         std::vector<std::string> parts;
@@ -201,22 +206,33 @@ UnitBase::TestResult UnitInsertDelete::testInsertDelete()
 
 UnitBase::TestResult UnitInsertDelete::testPasteBlank()
 {
-    const char* testname = "pasteBlank ";
     try
     {
         // Load a document and make it empty, then paste nothing into it.
-        Poco::URI uri(helpers::getTestServerURI());
-        std::shared_ptr<COOLWebSocket> socket
-            = helpers::loadDocAndGetSocket("hello.odt", uri, testname);
+        std::string documentPath, documentURL;
+        helpers::getDocumentPathAndURL("hello.odt", documentPath, documentURL, testname);
 
-        helpers::deleteAll(socket, testname);
+        std::shared_ptr<SocketPoll> socketPoll = std::make_shared<SocketPoll>(testname);
+
+        socketPoll->startThread();
+
+        std::shared_ptr<http::WebSocketSession> wsSession = helpers::loadDocAndGetSession(
+            socketPoll, Poco::URI(helpers::getTestServerURI()), documentURL, testname);
+
+        TST_LOG("deleteAll");
+        helpers::deleteAll(wsSession, testname, std::chrono::seconds(3));
 
         // Paste nothing into it.
-        helpers::sendTextFrame(socket, "paste mimetype=text/plain;charset=utf-8\n", testname);
+        TST_LOG("paste mimetype=text/plain;charset=utf-8");
+        helpers::sendTextFrame(wsSession, "paste mimetype=text/plain;charset=utf-8\n", testname);
 
         // Check if the document contains the pasted text.
-        const std::string selection = helpers::getAllText(socket, testname);
+        TST_LOG("getAllText");
+        const std::string selection = helpers::getAllText(wsSession, testname);
+        TST_LOG("getAllText => " << selection);
         LOK_ASSERT_EQUAL(std::string("textselectioncontent: "), selection);
+
+        socketPoll->joinThread();
     }
     catch (const Poco::Exception& exc)
     {
@@ -227,7 +243,6 @@ UnitBase::TestResult UnitInsertDelete::testPasteBlank()
 
 UnitBase::TestResult UnitInsertDelete::testGetTextSelection()
 {
-    const char* testname = "getTextSelection ";
     try
     {
         std::string documentPath, documentURL;
@@ -254,8 +269,6 @@ UnitBase::TestResult UnitInsertDelete::testCursorPosition()
 {
     try
     {
-        const char* testname = "cursorPosition ";
-
         // Load a document.
         std::string docPath;
         std::string docURL;
@@ -275,7 +288,7 @@ UnitBase::TestResult UnitInsertDelete::testCursorPosition()
         LOK_ASSERT_MESSAGE("missing property rectangle", command0->has("rectangle"));
 
         StringVector cursorTokens(
-            Util::tokenize(command0->get("rectangle").toString(), ','));
+            StringVector::tokenize(command0->get("rectangle").toString(), ','));
         LOK_ASSERT_EQUAL(static_cast<size_t>(4), cursorTokens.size());
 
         // Create second view
@@ -291,7 +304,7 @@ UnitBase::TestResult UnitInsertDelete::testCursorPosition()
         LOK_ASSERT_MESSAGE("missing property rectangle", command->has("rectangle"));
 
         StringVector viewTokens(
-            Util::tokenize(command->get("rectangle").toString(), ','));
+            StringVector::tokenize(command->get("rectangle").toString(), ','));
         LOK_ASSERT_EQUAL(static_cast<size_t>(4), viewTokens.size());
 
         // check both cursor should be equal
@@ -309,7 +322,9 @@ UnitBase::TestResult UnitInsertDelete::testCursorPosition()
 
 void UnitInsertDelete::invokeWSDTest()
 {
-    UnitBase::TestResult result = testInsertDelete();
+    UnitBase::TestResult result = TestResult::Ok;
+
+    result = testInsertDelete();
     if (result != TestResult::Ok)
         exitTest(result);
 

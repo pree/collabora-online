@@ -5,10 +5,11 @@ var calcHelper = require('../../common/calc_helper');
 var mobileHelper = require('../../common/mobile_helper');
 
 describe('Apply number formatting.', function() {
-	var testFileName = 'number_format.ods';
+	var origTestFileName = 'number_format.ods';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'calc');
+		testFileName = helper.beforeAll(origTestFileName, 'calc');
 
 		// Click on edit button
 		mobileHelper.enableEditingMobile();
@@ -35,7 +36,7 @@ describe('Apply number formatting.', function() {
 	it('Select percent format from list.', function() {
 		selectFormatting('Percent');
 
-		cy.get('#NumberFormatPercentimg')
+		cy.get('.unoNumberFormatPercent img')
 			.should('have.class', 'selected');
 
 		// Decimal and leading zeros are changed.
@@ -59,7 +60,7 @@ describe('Apply number formatting.', function() {
 	it('Push percent button.', function() {
 		helper.clickOnIdle('#NumberFormatPercent');
 
-		cy.get('#NumberFormatPercentimg')
+		cy.get('.unoNumberFormatPercent img')
 			.should('have.class', 'selected');
 
 		cy.get('#numberformatcombobox .ui-header-left')
@@ -86,7 +87,7 @@ describe('Apply number formatting.', function() {
 	it('Select currency format from list.', function() {
 		selectFormatting('Currency');
 
-		cy.get('#NumberFormatCurrencyimg')
+		cy.get('.unoNumberFormatCurrency img')
 			.should('have.class', 'selected');
 
 		// Decimal and leading zeros are changed.
@@ -110,7 +111,7 @@ describe('Apply number formatting.', function() {
 	it('Push currency button.', function() {
 		helper.clickOnIdle('#NumberFormatCurrency');
 
-		cy.get('#NumberFormatCurrencyimg')
+		cy.get('.unoNumberFormatCurrency img')
 			.should('have.class', 'selected');
 
 		cy.get('#numberformatcombobox .ui-header-left')
@@ -138,7 +139,7 @@ describe('Apply number formatting.', function() {
 		// Change to currency first
 		helper.clickOnIdle('#NumberFormatCurrency');
 
-		cy.get('#NumberFormatCurrencyimg')
+		cy.get('.unoNumberFormatCurrency img')
 			.should('have.class', 'selected');
 
 		// Decimal and leading zeros are changed.
@@ -164,13 +165,13 @@ describe('Apply number formatting.', function() {
 
 		helper.clickOnIdle('#ScNumberFormatPropertyPanel');
 
-		cy.get('#NumberFormatDecimal')
+		cy.get('.unoNumberFormatDecimal')
 			.should('be.visible');
 
 		// Change to number formatting
-		helper.clickOnIdle('#NumberFormatDecimal');
+		helper.clickOnIdle('.unoNumberFormatDecimal');
 
-		cy.get('#NumberFormatDecimalimg')
+		cy.get('.unoNumberFormatDecimal img')
 			.should('have.class', 'selected');
 
 		cy.get('#numberformatcombobox .ui-header-left')

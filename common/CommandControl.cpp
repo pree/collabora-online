@@ -14,51 +14,107 @@
 
 namespace CommandControl
 {
+bool LockManager::_isLockedUser = false;
+bool LockManager::_isHostReadOnly = false;
+std::unordered_set<std::string> LockManager::LockedCommandList;
+std::string LockManager::LockedCommandListString;
+Util::RegexListMatcher LockManager::readOnlyWopiHosts;
+Util::RegexListMatcher LockManager::disabledCommandWopiHosts;
+bool LockManager::lockHostEnabled = false;
 
-bool FreemiumManager::_isFreemiumUser = false;
-std::unordered_set<std::string> FreemiumManager::FreemiumDenyList;
-std::string FreemiumManager::FreemiumDenyListString;
+LockManager::LockManager() {}
 
-FreemiumManager::FreemiumManager() {}
-
-void FreemiumManager::generateDenyList()
+void LockManager::generateLockedCommandList()
 {
-#ifdef ENABLE_FREEMIUM
+#ifdef ENABLE_FEATURE_LOCK
 
-    FreemiumDenyListString = config::getString("freemium.disabled_commands", "");
-    Util::trim(FreemiumDenyListString);
-    StringVector commandList = Util::tokenize(FreemiumDenyListString);
+    LockedCommandListString = config::getString("feature_lock.locked_commands", "");
+    Util::trim(LockedCommandListString);
+    StringVector commandList = StringVector::tokenize(LockedCommandListString);
 
     std::string command;
     for (std::size_t i = 0; i < commandList.size(); i++)
     {
-        // just an extra check to make sure any whitespace does not sniff in command
-        // or else command will not be recognized
-        command = Util::trim_whitespace(commandList[i]);
-        if(!command.empty())
+        command = commandList[i];
+        if (!command.empty())
         {
-            FreemiumDenyList.emplace(command);
+            LockedCommandList.emplace(command);
         }
     }
 #endif
 }
 
-const std::unordered_set<std::string>& FreemiumManager::getFreemiumDenyList()
+const std::unordered_set<std::string>& LockManager::getLockedCommandList()
 {
-    if (FreemiumDenyList.empty())
-        generateDenyList();
+    if (LockedCommandList.empty())
+        generateLockedCommandList();
 
-    return FreemiumDenyList;
+    return LockedCommandList;
 }
 
-const std::string FreemiumManager::getFreemiumDenyListString()
+const std::string LockManager::getLockedCommandListString()
 {
-    if (FreemiumDenyListString.empty())
-        generateDenyList();
+    if (LockedCommandListString.empty())
+        generateLockedCommandList();
 
-    return FreemiumDenyListString;
+    return LockedCommandListString;
 }
 
+void LockManager::parseLockedHost(Poco::Util::LayeredConfiguration& conf)
+{
+    readOnlyWopiHosts.clear();
+    disabledCommandWopiHosts.clear();
+
+    lockHostEnabled = config::getBool("feature_lock.locked_hosts[@allow]", false);
+
+    if (lockHostEnabled)
+    {
+        for (size_t i = 0;; i++)
+        {
+            const std::string path = "feature_lock.locked_hosts.host[" + std::to_string(i) + ']';
+            const std::string host = conf.getString(path, "");
+            if (!host.empty())
+            {
+                if (conf.getBool(path + "[@read_only]", false))
+                {
+                    readOnlyWopiHosts.allow(host);
+                }
+                else
+                {
+                    readOnlyWopiHosts.deny(host);
+                }
+
+                if (conf.getBool(path + "[@disabled_commands]", false))
+                {
+                    disabledCommandWopiHosts.allow(host);
+                }
+                else
+                {
+                    disabledCommandWopiHosts.deny(host);
+                }
+            }
+            else if (!conf.has(path))
+            {
+                break;
+            }
+        }
+    }
+}
+
+bool LockManager::isHostReadOnly(const std::string& host)
+{
+    return LockManager::lockHostEnabled && LockManager::readOnlyWopiHosts.match(host);
+}
+
+bool LockManager::isHostCommandDisabled(const std::string& host)
+{
+    return LockManager::lockHostEnabled && LockManager::disabledCommandWopiHosts.match(host);
+}
+
+bool LockManager::hostExist(const std::string& host)
+{
+    return LockManager::lockHostEnabled && LockManager::readOnlyWopiHosts.matchExist(host);
+}
 
 bool RestrictionManager::_isRestrictedUser = false;
 std::unordered_set<std::string> RestrictionManager::RestrictedCommandList;
@@ -71,15 +127,13 @@ void RestrictionManager::generateRestrictedCommandList()
 #ifdef ENABLE_FEATURE_RESTRICTION
     RestrictedCommandListString = config::getString("restricted_commands", "");
     Util::trim(RestrictedCommandListString);
-    StringVector commandList = Util::tokenize(RestrictedCommandListString);
+    StringVector commandList = StringVector::tokenize(RestrictedCommandListString);
 
     std::string command;
     for (std::size_t i = 0; i < commandList.size(); i++)
     {
-        // just an extra check to make sure any whitespace does not sniff in command
-        // or else command will not be recognized
-        command = Util::trim_whitespace(commandList[i]);
-        if(!command.empty())
+        command = commandList[i];
+        if (!command.empty())
         {
             RestrictedCommandList.emplace(command);
         }

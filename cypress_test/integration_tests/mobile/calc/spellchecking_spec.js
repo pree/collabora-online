@@ -1,14 +1,15 @@
-/* global describe it cy beforeEach require afterEach expect*/
+/* global describe it cy Cypress beforeEach require afterEach expect*/
 
 var helper = require('../../common/helper');
 var calcHelper = require('../../common/calc_helper');
 var mobileHelper = require('../../common/mobile_helper');
 
 describe('Calc spell checking menu.', function() {
-	var testFileName = 'spellchecking.ods';
+	var origTestFileName = 'spellchecking.ods';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'calc');
+		testFileName = helper.beforeAll(origTestFileName, 'calc');
 
 		// Click on edit button
 		mobileHelper.enableEditingMobile();
@@ -40,7 +41,15 @@ describe('Calc spell checking menu.', function() {
 				}
 
 				// Remove selection
-				calcHelper.removeTextSelection();
+				cy.get('#tb_actionbar_item_acceptformula').then($ele =>{
+					cy.wait(1000);
+					if (Cypress.dom.isVisible($ele)) {
+						cy.wrap($ele).click();
+					}
+				});
+
+				cy.get('.cursor-overlay .blinking-cursor')
+					.should('not.exist');
 
 				// Step into edit mode again
 				calcHelper.dblClickOnFirstCell();

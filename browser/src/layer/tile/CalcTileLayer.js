@@ -23,8 +23,10 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 
 		for (var i = 0; i < commentList.length; i++) {
 			if (this._cellCursorTwips.contains(commentList[i].sectionProperties.data.cellPos)) {
-				comment = commentList[i];
-				break;
+				if (commentList[i].tab == this._selectedPart) {
+					comment = commentList[i];
+					break;
+				}
 			}
 		}
 
@@ -62,6 +64,14 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 			if (this.isCursorVisible()) {
 				this._onUpdateCursor(true /* scroll */);
 			}
+		}.bind(this));
+
+		// This is called when page size is increased
+		// the content of the cells that become visible may stay empty
+		// unless we have the tiles in the cache already
+		// This will only fetch the tiles which are invalid or does not exist
+		map.on('sizeincreased', function() {
+			this._update();
 		}.bind(this));
 
 		app.sectionContainer.addSection(new app.definitions.AutoFillMarkerSection());
@@ -281,7 +291,7 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 			return { hasSelection: false };
 
 		var bounds = this._cellCSelections.getBounds();
-		console.assert(bounds.isValid(), 'Non empty selection should have valid bounds');
+		window.app.console.assert(bounds.isValid(), 'Non empty selection should have valid bounds');
 		return {
 			hasSelection: true,
 			start: this._corePixelsToTwips(bounds.min).add([1, 1]),
@@ -290,6 +300,7 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 	},
 
 	_onStatusMsg: function (textMsg) {
+		console.log('DEBUG: onStatusMsg: ' + textMsg);
 		var command = app.socket.parseServerCmd(textMsg);
 		if (command.width && command.height && this._documentInfo !== textMsg) {
 			var firstSelectedPart = (typeof this._selectedPart !== 'number');
@@ -323,6 +334,8 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 				this._updateMaxBounds(true);
 			}
 			this._hiddenParts = command.hiddenparts || [];
+			this._rtlParts = command.rtlParts || [];
+			console.log('DEBUG: rtlParts = ' + this._rtlParts);
 			this._documentInfo = textMsg;
 			var partNames = textMsg.match(/[^\r\n]+/g);
 			// only get the last matches
@@ -512,6 +525,87 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 		}
 	},
 
+	_adjustCanvasSectionsForLayoutChange: function () {
+
+		var sheetIsRTL = this._selectedPart in this._rtlParts;
+		if (sheetIsRTL && this._layoutIsRTL !== true) {
+			console.log('debug: in LTR -> RTL canvas section adjustments');
+			var sectionContainer = this._painter._sectionContainer;
+
+			var tilesSection = sectionContainer.getSectionWithName(L.CSections.Tiles.name);
+			var rowHeaderSection = sectionContainer.getSectionWithName(L.CSections.RowHeader.name);
+			var columnHeaderSection = sectionContainer.getSectionWithName(L.CSections.ColumnHeader.name);
+			var cornerHeaderSection = sectionContainer.getSectionWithName(L.CSections.CornerHeader.name);
+			var columnGroupSection = sectionContainer.getSectionWithName(L.CSections.ColumnGroup.name);
+			var rowGroupSection = sectionContainer.getSectionWithName(L.CSections.RowGroup.name);
+			var cornerGroupSection = sectionContainer.getSectionWithName(L.CSections.CornerGroup.name);
+			// Scroll section covers the entire document area, and needs RTL adjustments internally.
+
+			if (cornerGroupSection) {
+				cornerGroupSection.anchor = ['top', 'right'];
+			}
+
+			if (rowGroupSection) {
+				rowGroupSection.anchor = [[L.CSections.CornerGroup.name, 'bottom', 'top'], 'right'];
+			}
+
+			if (columnGroupSection) {
+				columnGroupSection.anchor = ['top', [L.CSections.CornerGroup.name, '-left', 'right']];
+			}
+
+			cornerHeaderSection.anchor = [[L.CSections.ColumnGroup.name, 'bottom', 'top'], [L.CSections.RowGroup.name, '-left', 'right']];
+
+			rowHeaderSection.anchor = [[L.CSections.CornerHeader.name, 'bottom', 'top'], [L.CSections.RowGroup.name, '-left', 'right']];
+
+			columnHeaderSection.anchor = [[L.CSections.ColumnGroup.name, 'bottom', 'top'], [L.CSections.CornerHeader.name, '-left', 'right']];
+			columnHeaderSection.expand = ['left'];
+
+			tilesSection.anchor = [[L.CSections.ColumnHeader.name, 'bottom', 'top'], [L.CSections.RowHeader.name, '-left', 'right']];
+
+			this._layoutIsRTL = true;
+
+			sectionContainer.reNewAllSections(true);
+
+		} else if (!sheetIsRTL && this._layoutIsRTL === true) {
+
+			console.log('debug: in RTL -> LTR canvas section adjustments');
+			this._layoutIsRTL = false;
+			var sectionContainer = this._painter._sectionContainer;
+
+			var tilesSection = sectionContainer.getSectionWithName(L.CSections.Tiles.name);
+			var rowHeaderSection = sectionContainer.getSectionWithName(L.CSections.RowHeader.name);
+			var columnHeaderSection = sectionContainer.getSectionWithName(L.CSections.ColumnHeader.name);
+			var cornerHeaderSection = sectionContainer.getSectionWithName(L.CSections.CornerHeader.name);
+			var columnGroupSection = sectionContainer.getSectionWithName(L.CSections.ColumnGroup.name);
+			var rowGroupSection = sectionContainer.getSectionWithName(L.CSections.RowGroup.name);
+			var cornerGroupSection = sectionContainer.getSectionWithName(L.CSections.CornerGroup.name);
+
+			if (cornerGroupSection) {
+				cornerGroupSection.anchor = ['top', 'left'];
+			}
+
+			if (rowGroupSection) {
+				rowGroupSection.anchor = [[L.CSections.CornerGroup.name, 'bottom', 'top'], 'left'];
+			}
+
+			if (columnGroupSection) {
+				columnGroupSection.anchor = ['top', [L.CSections.CornerGroup.name, 'right', 'left']];
+			}
+
+			cornerHeaderSection.anchor = [[L.CSections.ColumnGroup.name, 'bottom', 'top'], [L.CSections.RowGroup.name, 'right', 'left']];
+
+			rowHeaderSection.anchor = [[L.CSections.CornerHeader.name, 'bottom', 'top'], [L.CSections.RowGroup.name, 'right', 'left']];
+
+			columnHeaderSection.anchor = [[L.CSections.ColumnGroup.name, 'bottom', 'top'], [L.CSections.CornerHeader.name, 'right', 'left']];
+			columnHeaderSection.expand = ['right'];
+
+			tilesSection.anchor = [[L.CSections.ColumnHeader.name, 'bottom', 'top'], [L.CSections.RowHeader.name, 'right', 'left']];
+
+			sectionContainer.reNewAllSections(true);
+
+		}
+	},
+
 	_handleSheetGeometryDataMsg: function (jsonMsgObj) {
 		if (!this.sheetGeometry) {
 			this._sheetGeomFirstWait = false;
@@ -533,6 +627,10 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 			this._pixelsToTwips(this._map.getSize()));
 
 		this._addRemoveGroupSections();
+
+		console.log('debug: got sheetGeometry: this._rtlParts = ' + this._rtlParts + ' this._selectedPart = ' + this._selectedPart);
+
+		this._adjustCanvasSectionsForLayoutChange();
 
 		this._updateHeadersGridLines(undefined, true /* updateCols */,
 			true /* updateRows */);
@@ -575,7 +673,7 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 			this._splitPaneCache = {};
 		}
 
-		console.assert(typeof this._selectedPart === 'number', 'invalid selectedPart');
+		window.app.console.assert(typeof this._selectedPart === 'number', 'invalid selectedPart');
 
 		var spContext = this._splitPaneCache[this._selectedPart];
 		if (!spContext) {
@@ -642,12 +740,12 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 		}
 
 		if (!e.state || e.state.length === 0) {
-			console.warn('Empty argument for ' + e.commandName);
+			window.app.console.warn('Empty argument for ' + e.commandName);
 			return;
 		}
 
 		var newSplitIndex = Math.floor(parseInt(e.state));
-		console.assert(!isNaN(newSplitIndex) && newSplitIndex >= 0, 'invalid argument for ' + e.commandName);
+		window.app.console.assert(!isNaN(newSplitIndex) && newSplitIndex >= 0, 'invalid argument for ' + e.commandName);
 
 		// This stores the current split-cell state of core, so this should not be modified.
 		this._splitCellState[isSplitCol ? 'x' : 'y'] = newSplitIndex;
@@ -715,17 +813,26 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 			app.sectionContainer.getSectionWithName(L.CSections.CommentList.name).importComments(values.comments);
 		} else if (values.commentsPos) {
 			var section = app.sectionContainer.getSectionWithName(L.CSections.CommentList.name);
+			// invalidate all comments
+			section.sectionProperties.commentList.forEach(function (comment) {
+				comment.valid = false;
+			});
 			for (var index in values.commentsPos) {
 				comment = values.commentsPos[index];
 				if (section)
 				{
 					var commentObject;
 					for (var i = 0; i < section.sectionProperties.commentList.length; i++) {
-						if (parseInt(section.sectionProperties.commentList[i].sectionProperties.data.tab) === parseInt(comment.tab)) {
-							if (parseInt(section.sectionProperties.commentList[i].sectionProperties.data.id) === parseInt(comment.id)) {
+						if (parseInt(section.sectionProperties.commentList[i].sectionProperties.data.id) === parseInt(comment.id)) {
+							if (parseInt(section.sectionProperties.commentList[i].sectionProperties.data.tab) === parseInt(comment.tab)) {
 								commentObject = section.sectionProperties.commentList[i];
-								break;
+							} else {
+								// tabs can be moved around and we need to update the tab because the id is still valid.
+								commentObject = section.sectionProperties.commentList[i];
+								commentObject.sectionProperties.data.tab = comment.tab;
 							}
+							commentObject.valid = true;
+							break;
 						}
 					}
 					if (commentObject)
@@ -747,12 +854,19 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 		if (this.insertMode === false && this._cellCursorXY && this._cellCursorXY.x !== -1) {
 			// When insertMode is false, this is a cell selection message.
 			textMsg = textMsg.replace('textselection:', '');
-			if (textMsg.trim() !== 'EMPTY') {
+			if (textMsg.trim() !== 'EMPTY' && textMsg.trim() !== '') {
 				this._cellSelections = textMsg.split(';');
 				var ratio = this._tileSize / this._tileWidthTwips;
+				var that = this;
 				this._cellSelections = this._cellSelections.map(function(element) {
 					element = element.split(',');
-					return L.LOUtil.createRectangle(parseInt(element[0]) * ratio, parseInt(element[1]) * ratio, parseInt(element[2]) * ratio, parseInt(element[3]) * ratio);
+					var topLeftTwips = new L.Point(parseInt(element[0]), parseInt(element[1]));
+					var offset = new L.Point(parseInt(element[2]), parseInt(element[3]));
+					var bottomRightTwips = topLeftTwips.add(offset);
+					var boundsTwips = that._convertToTileTwipsSheetArea(new L.Bounds(topLeftTwips, bottomRightTwips));
+
+					element = L.LOUtil.createRectangle(boundsTwips.min.x * ratio, boundsTwips.min.y * ratio, boundsTwips.getSize().x * ratio, boundsTwips.getSize().y * ratio);
+					return element;
 				});
 			}
 			else {
@@ -783,7 +897,7 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 		}
 
 		if (typeof msgObj !== 'object') {
-			console.error('invalid edit cursor message');
+			window.app.console.error('invalid edit cursor message');
 			return undefined;
 		}
 
@@ -800,7 +914,7 @@ L.CalcTileLayer = L.CanvasTileLayer.extend({
 		}
 
 		if (typeof textMsg !== 'string') {
-			console.error('invalid text selection message');
+			window.app.console.error('invalid text selection message');
 			return [];
 		}
 

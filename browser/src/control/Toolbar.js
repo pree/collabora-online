@@ -325,6 +325,11 @@ L.Map.include({
 		// To exercise the Trace Event functionality, uncomment this
 		// app.socket.emitInstantTraceEvent('cool-unocommand:' + command);
 
+		// Used when new varsion of core uses different name for a command
+		var compatibilityAliases = {
+			'.uno:InsertZWNBSP': ['.uno:InsertWJ']
+		};
+
 		var isAllowedInReadOnly = false;
 		var allowedCommands = ['.uno:Save', '.uno:WordCountDialog', '.uno:EditAnnotation',
 			'.uno:InsertAnnotation', '.uno:DeleteAnnotation', '.uno:Signature',
@@ -354,8 +359,16 @@ L.Map.include({
 		if (this.dialog.hasOpenedDialog())
 			this.dialog.blinkOpenDialog();
 		else if (this.isPermissionEdit() || isAllowedInReadOnly) {
-			if (!this.messageNeedsToBeRedirected(command))
+			if (!this.messageNeedsToBeRedirected(command)) {
 				app.socket.sendMessage('uno ' + command + (json ? ' ' + JSON.stringify(json) : ''));
+
+				if (compatibilityAliases[command]) {
+					for (var i in compatibilityAliases[command]) {
+						command = compatibilityAliases[command][i];
+						app.socket.sendMessage('uno ' + command + (json ? ' ' + JSON.stringify(json) : ''));
+					}
+				}
+			}
 		}
 	},
 
@@ -434,7 +447,7 @@ L.Map.include({
 						for (var p = 0; p < imgList.length; p++) {
 							var imgSrc = imgList[p].src;
 							imgSrc = imgSrc.substring(imgSrc.indexOf('/images'));
-							imgList[p].src = window.makeWsUrl('/cool/dist'+ imgSrc);
+							imgList[p].src = window.makeWsUrl('/browser/dist'+ imgSrc);
 						}
 					}
 					// Display help according to document opened
@@ -478,7 +491,17 @@ L.Map.include({
 				}
 				translatableContent = $vexContent.find('td');
 				for (i = 0, max = translatableContent.length; i < max; i++) {
-					translatableContent[i].innerHTML = translatableContent[i].innerHTML.toLocaleString();
+					var orig = translatableContent[i].innerHTML;
+					var trans = translatableContent[i].innerHTML.toLocaleString();
+					// Try harder to get translation of keyboard shortcuts (html2po trims starting <kbd> and ending </kbd>)
+					if (orig === trans && orig.indexOf('kbd') != -1) {
+						var trimmedOrig = orig.replace(/^(<kbd>)/,'').replace(/(<\/kbd>$)/,'');
+						var trimmedTrans = trimmedOrig.toLocaleString();
+						if (trimmedOrig !== trimmedTrans) {
+							trans = '<kbd>' + trimmedTrans + '</kbd>';
+						}
+					}
+					translatableContent[i].innerHTML = trans;
 				}
 				translatableContent = $vexContent.find('p');
 				for (i = 0, max = translatableContent.length; i < max; i++) {
@@ -499,34 +522,16 @@ L.Map.include({
 					}
 				}
 
-				// Substitute %productName in Online Help
+				// Substitute %productName in Online Help and replace special Mac key names
 				if (id === 'online-help') {
 					var productNameContent = $vexContent.find('span.productname');
 					for (i = 0, max = productNameContent.length; i < max; i++) {
 						productNameContent[i].innerHTML = productNameContent[i].innerHTML.replace(/%productName/g, productName);
 					}
+					document.getElementById('online-help').innerHTML = L.Util.replaceCtrlAltInMac(document.getElementById('online-help').innerHTML);
 				}
-
-				// Special Mac key names
-				if (navigator.appVersion.indexOf('Mac') != -1 || navigator.userAgent.indexOf('Mac') != -1) {
-					var ctrl = /Ctrl/g;
-					var alt = /Alt/g;
-					if (String.locale.startsWith('de') || String.locale.startsWith('dsb') || String.locale.startsWith('hsb')) {
-						ctrl = /Strg/g;
-					}
-					if (String.locale.startsWith('lt')) {
-						ctrl = /Vald/g;
-					}
-					if (String.locale.startsWith('sl')) {
-						ctrl = /Krmilka/gi;
-						alt = /Izmenjalka/gi;
-					}
-					if (id === 'keyboard-shortcuts') {
-						document.getElementById('keyboard-shortcuts').innerHTML = document.getElementById('keyboard-shortcuts').innerHTML.replace(ctrl, '⌘').replace(alt, '⌥');
-					}
-					if (id === 'online-help') {
-						document.getElementById('online-help').innerHTML = document.getElementById('online-help').innerHTML.replace(ctrl, '⌘').replace(alt, '⌥');
-					}
+				if (id === 'keyboard-shortcuts') {
+					document.getElementById('keyboard-shortcuts').innerHTML = L.Util.replaceCtrlAltInMac(document.getElementById('keyboard-shortcuts').innerHTML);
 				}
 
 				$vexContent.attr('tabindex', -1);
@@ -548,135 +553,10 @@ L.Map.include({
 		}
 		var helpLocation = 'cool-help.html';
 		if (window.socketProxy)
-			helpLocation = window.makeWsUrl('/cool/dist/' + helpLocation);
+			helpLocation = window.makeWsUrl('/browser/dist/' + helpLocation);
 		$.get(helpLocation, function(data) {
 			map._doVexOpenHelpFile(data, id, map);
 		});
-	},
-
-	// show the actual welcome dialog with the given data
-	_showWelcomeDialogVex: function(data, calledFromMenu) {
-		var w;
-		var iw = window.innerWidth;
-		var hasDismissBtn = window.enableWelcomeMessageButton;
-		var btnText = _('I understand the risks');
-
-		if (iw < 768) {
-			w = iw - 30;
-		}
-		else if (iw > 1920) {
-			w = 960;
-		}
-		else {
-			w = iw / 5 + 590;
-		}
-
-		if (!hasDismissBtn && window.mode.isMobile()) {
-			var ih = window.innerHeight;
-			var h = ih / 2;
-			if (iw < 768) {
-				h = ih - 170; // Hopefully enough padding to avoid extra scroll-bar on mobile,
-			}
-			var containerDiv = '<div style="max-height:' + h + 'px;overflow-y:auto;">';
-			containerDiv += data;
-			containerDiv += '</div>';
-			data = containerDiv;
-			btnText = _('Dismiss');
-			hasDismissBtn = true;
-		}
-
-		// show the dialog
-		var map = this;
-		vex.dialog.open({
-			unsafeMessage: data,
-			showCloseButton: !hasDismissBtn,
-			escapeButtonCloses: false,
-			overlayClosesOnClick: false,
-			className: !window.mode.isMobile() ? 'vex-theme-plain' : 'vex-theme-plain vex-welcome-mobile',
-			closeAllOnPopState: false,
-			focusFirstInput: false, // Needed to avoid auto-scroll to the bottom
-			buttons: !hasDismissBtn ? {} : [
-				$.extend({}, vex.dialog.buttons.YES, { text: btnText }),
-			],
-			afterOpen: function() {
-				var $vexContent = $(this.contentEl);
-				this.contentEl.style.width = w + 'px';
-
-				$vexContent.attr('tabindex', -1);
-				// Work-around to avoid the ugly all-bold dialog message on mobile
-				if (window.mode.isMobile()) {
-					var dlgMsg = document.getElementsByClassName('vex-dialog-message')[0];
-					dlgMsg.setAttribute('class', 'vex-content');
-				}
-				$vexContent.focus();
-				// workaround for https://github.com/HubSpot/vex/issues/43
-				$('.vex-overlay').css({ 'pointer-events': 'none'});
-			},
-			beforeClose: function () {
-				if (!calledFromMenu) {
-					localStorage.setItem('WSDWelcomeVersion', app.socket.WSDServer.Version);
-				}
-				map.focus();
-			}
-		});
-	},
-
-	showWelcomeDialog: function(calledFromMenu) {
-		console.log('showWelcomeDialog, calledFromMenu: ' + calledFromMenu);
-		var welcomeLocation = 'welcome/welcome-' + String.locale + '.html';
-		if (window.socketProxy)
-			welcomeLocation = window.makeWsUrl('/cool/dist/' + welcomeLocation);
-
-		var map = this;
-
-		// if the user doesn't accept cookies, or we get several triggers,
-		// ensure we only ever do this once.
-		if (!calledFromMenu && map._alreadyShownWelcomeDialog)
-			return;
-		map._alreadyShownWelcomeDialog = true;
-
-		// try to load the welcome message
-		$.get(welcomeLocation)
-			.done(function(data) {
-				map._showWelcomeDialogVex(data, calledFromMenu);
-			})
-			.fail(function() {
-				var currentDate = new Date();
-				localStorage.setItem('WSDWelcomeDisabled', 'true');
-				localStorage.setItem('WSDWelcomeDisabledDate', currentDate.toDateString());
-
-				if (calledFromMenu)
-					map._showWelcomeDialogVex(_('We are sorry, the information about the latest updates is not available.'));
-			});
-	},
-
-	shouldWelcome: function() {
-		if (!window.isLocalStorageAllowed || !window.enableWelcomeMessage)
-			return false;
-
-		var storedVersion = localStorage.getItem('WSDWelcomeVersion');
-		var currentVersion = app.socket.WSDServer.Version;
-		var welcomeDisabledCookie = localStorage.getItem('WSDWelcomeDisabled');
-		var welcomeDisabledDate = localStorage.getItem('WSDWelcomeDisabledDate');
-		var isWelcomeDisabled = false;
-
-		if (welcomeDisabledCookie && welcomeDisabledDate) {
-			// Check if we are stil in the same day
-			var currentDate = new Date();
-			if (welcomeDisabledDate === currentDate.toDateString())
-				isWelcomeDisabled = true;
-			else {
-				//Values expired. Clear the local values
-				localStorage.removeItem('WSDWelcomeDisabled');
-				localStorage.removeItem('WSDWelcomeDisabledDate');
-			}
-		}
-
-		if ((!storedVersion || storedVersion !== currentVersion) && !isWelcomeDisabled) {
-			return true;
-		}
-
-		return false;
 	},
 
 	showLOAboutDialog: function() {
@@ -750,35 +630,12 @@ L.Map.include({
 					logLevelInformation = newLogLevel;
 
 				$(app.ExpertlyTrickForLOAbout.contentEl).find('#log-level-state').html('Log level: ' + logLevelInformation);
-			} else if (event.key === 't') {
-				// T turns Trace Event recording on in the Kit process
-				// for this document, as long as coolwsd is running with the
-				// trace_event[@enable] config option as true. T again
-				// turns it off.
-
-				if (app.socket.enableTraceEventLogging) {
-					app.socket.traceEventRecordingToggle = !app.socket.traceEventRecordingToggle;
-
-					app.socket.sendMessage('traceeventrecording '
-							       + (app.socket.traceEventRecordingToggle ? 'start' : 'stop'));
-
-					$(app.ExpertlyTrickForLOAbout.contentEl).find('#trace-event-state').html('Trace Event generation: ' + (app.socket.traceEventRecordingToggle ? 'ON' : 'OFF'));
-					// Just as a test, uncomment this to toggle SAL_WARN and
-					// SAL_INFO selection between two states: 1) the default
-					// as directed by the SAL_LOG environment variable, and
-					// 2) all warnings on plus SAL_INFO for sc.
-					//
-					// (Note that coolwsd sets the SAL_LOG environment variable
-					// to "-WARN-INFO", i.e. the default is that nothing is
-					// logged from core.)
-
-					// app.socket.sendMessage('sallogoverride ' + (app.socket.traceEventRecordingToggle ? '+WARN+INFO.sc' : 'default'));
-				}
 			}
 		};
 		vex.open({
 			unsafeContent: content[0].outerHTML,
 			showCloseButton: true,
+			closeClassName: 'vex-close-m',
 			escapeButtonCloses: true,
 			overlayClosesOnClick: true,
 			buttons: {},
@@ -851,16 +708,16 @@ L.Map.include({
 		}
 
 		vex.dialog.open({
-			contentClassName: 'hyperlink-dialog',
+			contentClassName: 'hyperlink-dialog vex-has-inputs',
 			message: _('Insert hyperlink'),
 			overlayClosesOnClick: false,
 			input: [
-				_('Text') + '<input name="text" id="hyperlink-text-box" type="text" value="' + text + '"/>',
+				_('Text') + '<textarea name="text" id="hyperlink-text-box" style="resize: none" type="text"></textarea>',
 				_('Link') + '<input name="link" id="hyperlink-link-box" type="text" value="' + link + '"/>'
 			].join(''),
 			buttons: [
-				$.extend({}, vex.dialog.buttons.YES, { text: _('OK') }),
-				$.extend({}, vex.dialog.buttons.NO, { text: _('Cancel') })
+				$.extend({}, vex.dialog.buttons.NO, { text: _('Cancel') }),
+				$.extend({}, vex.dialog.buttons.YES, { text: _('OK') })
 			],
 			callback: function(data) {
 				if (data && data.link != '') {
@@ -883,11 +740,13 @@ L.Map.include({
 			},
 			afterOpen: function() {
 				setTimeout(function() {
-					if (document.getElementById('hyperlink-text-box').value.trim() !== '') {
+					var textBox = document.getElementById('hyperlink-text-box');
+					textBox.textContent = text ? text.trim() : '';
+					if (textBox.textContent.trim() !== '') {
 						document.getElementById('hyperlink-link-box').focus();
 					}
 					else {
-						document.getElementById('hyperlink-text-box').focus();
+						textBox.focus();
 					}
 				}, 0);
 			}

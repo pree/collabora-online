@@ -3,7 +3,7 @@
 
 AC_PREREQ([2.63])
 
-AC_INIT([coolwsd], [21.11.0.1], [https://github.com/CollaboraOnline/online/issues], [coolwsd], [https://collaboraonline.github.io/])
+AC_INIT([coolwsd], [22.05.0.1], [https://github.com/CollaboraOnline/online/issues], [coolwsd], [https://collaboraonline.github.io/])
 LT_INIT([shared, disable-static, dlopen])
 
 AM_INIT_AUTOMAKE([1.10 foreign subdir-objects tar-pax -Wno-portability])
@@ -196,7 +196,7 @@ AC_ARG_WITH([user-id],
 
 AC_ARG_WITH([icon-theme],
               AS_HELP_STRING([--with-icon-theme=<path>],
-                             [Path to custom icon theme (similar to loleflet/images).]))
+                             [Path to custom icon theme (similar to browser/images).]))
 
 AC_ARG_WITH(vendor,
     AS_HELP_STRING([--with-vendor="John the Builder"],
@@ -206,6 +206,11 @@ AC_ARG_WITH(vendor,
 AC_ARG_WITH(info-url,
     AS_HELP_STRING([--with-info-url="https://john-the-builder.org"],
         [Set the info url of the build.]),
+,)
+
+AC_ARG_WITH(welcome-url,
+    AS_HELP_STRING([--with-welcome-url=<url>],
+        [Set the welcome url of the build.]),
 ,)
 
 AC_ARG_ENABLE([seccomp],
@@ -286,23 +291,21 @@ AC_ARG_WITH([max-documents],
              AS_HELP_STRING([--with-max-documents],
                            [Set the limit on the total number of documents. Def: 10, Min: 2.]))
 
-AC_ARG_WITH([feedback-location],
-            AS_HELP_STRING([--with-feedback-location=<url>],
-                           [User feedback URL location. Default to http://127.0.0.1:8000/Rate/feedback.html]))
+AC_ARG_WITH([feedback-url],
+            AS_HELP_STRING([--with-feedback-url=<url>],
+                           [User feedback URL.]))
 
-AC_ARG_ENABLE(welcome-message,
-    AS_HELP_STRING([--enable-welcome-message],
-        [Enables welcome message on version update. Can be changed later in coolwsd.xml.])
-)
-
-AC_ARG_ENABLE(feedback,
-    AS_HELP_STRING([--enable-feedback],
-        [Enables feedback, user rating.])
-)
+AC_ARG_WITH([infobar-url],
+            AS_HELP_STRING([--with-infobar-url=<url>],
+                           [Infobar URL.]))
 
 AC_ARG_WITH([sanitizer],
              AS_HELP_STRING([--with-sanitizer],
                            [Enable one or more compatible sanitizers. E.g. --with-sanitizer=address,undefined,leak]))
+
+AC_ARG_ENABLE([logging-test-asserts],
+                AS_HELP_STRING([--enable-logging-test-asserts],
+                            [Enable logging of passing test assertions.]))
 
 AC_ARG_WITH([compiler-plugins],
             AS_HELP_STRING([--with-compiler-plugins=<path>],
@@ -340,13 +343,17 @@ AC_ARG_WITH([dictionaries],
                  on this instance. Allowing too many has negative effect on startup performance. Default: de_DE en_GB
                  en_US es_ES fr_FR it nl pt_BR pt_PT ru.]))
 
-AC_ARG_ENABLE([freemium],
-              AS_HELP_STRING([--enable-freemium],
-                             [Enable freemium model.]))
+AC_ARG_ENABLE([feature-lock],
+              AS_HELP_STRING([--enable-feature-lock],
+                             [Enable control over which uno-commands/feature to lock.]))
 
 AC_ARG_ENABLE([feature-restriction],
               AS_HELP_STRING([--enable-feature-restriction],
-                             [Enable control over which uno-commands/feature to disable.]))
+                             [Enable control over which uno-commands/feature to disable completely.]))
+
+AC_ARG_ENABLE([experimental],
+              AS_HELP_STRING([--enable-experimental],
+                             [Enable experimental features and behavior]))
 
 
 # Handle options
@@ -365,7 +372,11 @@ COOLWSD_ANONYMIZE_USER_DATA=false
 BROWSER_LOGGING="false"
 debug_msg="secure mode: product build"
 anonym_msg=""
+ENABLE_EXPERIMENTAL=false
+experimental_msg="disabled by default"
 bundle_msg="using uglified bundled JS and CSS"
+LOK_LOG_ASSERTIONS=0
+log_asserts_msg="disabled"
 if test "$enable_debug" = "yes"; then
    AC_DEFINE([ENABLE_DEBUG],1,[Whether to compile in some extra debugging support code and disable some security pieces])
    ENABLE_DEBUG=true
@@ -381,6 +392,11 @@ if test "$enable_debug" = "yes"; then
       ENABLE_BUNDLE=false
       bundle_msg="using individual JS and CSS files"
    fi
+   if test "$enable_logging_test_asserts" != "no"; then
+      LOK_LOG_ASSERTIONS=1
+      log_asserts_msg="enabled"
+      AC_MSG_RESULT([Enabling logging of passing test assertions in debug build (default), override with --disable-logging-test-asserts])
+    fi
 else
     AC_DEFINE([ENABLE_DEBUG],0,[Whether to compile in some extra debugging support code and disable some security pieces])
 fi
@@ -421,9 +437,22 @@ fi
 AC_DEFINE_UNQUOTED([COOLWSD_ANONYMIZE_USER_DATA],[$COOLWSD_ANONYMIZE_USER_DATA],[Enable permanent anonymization in logs])
 AC_SUBST(COOLWSD_ANONYMIZE_USER_DATA)
 
+if test "$enable_logging_test_asserts" = "yes" ; then
+   LOK_LOG_ASSERTIONS=1
+   log_asserts_msg="enabled"
+fi
+AC_DEFINE_UNQUOTED([LOK_LOG_ASSERTIONS],[$LOK_LOG_ASSERTIONS],[Enable logging of test assertions])
+AC_SUBST(LOK_LOG_ASSERTIONS)
+
 if test -z "$anonym_msg";  then
   anonym_msg="anonymization of user-data is disabled"
 fi
+
+if test "$enable_experimental" = "yes" ; then
+  ENABLE_EXPERIMENTAL=true
+  experimental_msg="enabled by default"
+fi
+AC_SUBST(ENABLE_EXPERIMENTAL)
 
 # macOS: When configuring for building the app itself, on macOS, we need these.
 # But not when just configuring for building the JS on Linux, for copying over
@@ -753,39 +782,35 @@ AS_IF([test "$MAX_DOCUMENTS" -lt "2"],
 AC_DEFINE_UNQUOTED([MAX_DOCUMENTS],[$MAX_DOCUMENTS],[Limit the maximum number of open documents])
 AC_SUBST(MAX_DOCUMENTS)
 
-ENABLE_WELCOME_MESSAGE=false
-AS_IF([test "$enable_welcome_message" = "yes"],
-      [ENABLE_WELCOME_MESSAGE="true"])
-AC_DEFINE_UNQUOTED([ENABLE_WELCOME_MESSAGE],["$ENABLE_WELCOME_MESSAGE"],[Should the Release notes message on startup be enabled by default?])
-AC_SUBST(ENABLE_WELCOME_MESSAGE)
+FEEDBACK_URL=
 
-ENABLE_FEEDBACK=
-FEEDBACK_LOCATION=
-
-if test "$enable_feedback" = "yes"; then
-   ENABLE_FEEDBACK="true"
-
-   if test -n "$with_feedback_location"; then
-       FEEDBACK_LOCATION=$with_feedback_location
-   else
-       FEEDBACK_LOCATION="http://127.0.0.1:8000/Rate/feedback.html"
-   fi
+if test -n "$with_feedback_url"; then
+   FEEDBACK_URL=$with_feedback_url
 fi
 
-AC_DEFINE_UNQUOTED([ENABLE_FEEDBACK],["$ENABLE_FEEDBACK"],[User feedback rating])
-AC_DEFINE_UNQUOTED([FEEDBACK_LOCATION],["$FEEDBACK_LOCATION"],[User feedback URL location])
-AC_SUBST(ENABLE_FEEDBACK)
-AM_CONDITIONAL([ENABLE_FEEDBACK], [test "$ENABLE_FEEDBACK" = "true"])
+AC_DEFINE_UNQUOTED([FEEDBACK_URL],["$FEEDBACK_URL"],[User feedback URL.])
 
-ENABLE_WELCOME_MESSAGE_BUTTON=false
-AS_IF([test "$enable_welcome_message_button" = "yes"],
-      [ENABLE_WELCOME_MESSAGE_BUTTON="true"])
-AC_DEFINE_UNQUOTED([ENABLE_WELCOME_MESSAGE_BUTTON],["$ENABLE_WELCOME_MESSAGE_BUTTON"],[Should the Release notes message on startup should have a dismiss button instead of an x button to close by default?])
-AC_SUBST(ENABLE_WELCOME_MESSAGE_BUTTON)
+INFOBAR_URL=
+if test -n "$with_infobar_url"; then
+   INFOBAR_URL=$with_infobar_url
+fi
 
-USER_INTERFACE_MODE='classic'
-AC_DEFINE_UNQUOTED([USER_INTERFACE_MODE],["$USER_INTERFACE_MODE"],[Which user interface mode should be activated])
-AC_SUBST(USER_INTERFACE_MODE)
+AC_DEFINE_UNQUOTED([INFOBAR_URL],["$INFOBAR_URL"],[Infobar URL.])
+
+WELCOME_CONFIG_FRAGMENT=/dev/null
+ENABLE_WELCOME_MESSAGE=0
+WELCOME_URL=
+if test -n "$with_welcome_url"; then
+    WELCOME_URL=$with_welcome_url
+    ENABLE_WELCOME_MESSAGE=1
+else
+    WELCOME_CONFIG_FRAGMENT=$srcdir/coolwsd-welcome.xml
+fi
+
+AC_SUBST_FILE([WELCOME_CONFIG_FRAGMENT])
+AC_DEFINE_UNQUOTED([ENABLE_WELCOME_MESSAGE],$ENABLE_WELCOME_MESSAGE,[Should the Release notes message be shown on upgrade])
+AM_CONDITIONAL([ENABLE_WELCOME_MESSAGE], [test "$ENABLE_WELCOME_MESSAGE" = "1"])
+AC_DEFINE_UNQUOTED([WELCOME_URL],["$WELCOME_URL"],[The welcome url of the build.])
 
 VEREIGN_URL=
 if test "$enable_vereign" = "yes"; then
@@ -797,8 +822,7 @@ AC_SUBST(VEREIGN_URL)
 # Test for build environment
 
 AS_IF([test "$ENABLE_GTKAPP" != true],
-[CXXFLAGS="$CXXFLAGS -std=c++11"
-CXXFLAGS="$CXXFLAGS -Wall -Wextra -Wshadow"])
+[CXXFLAGS="$CXXFLAGS -Wall -Wextra -Wshadow"])
 
 CFLAGS="$CFLAGS -Wall -Wextra"
 
@@ -814,7 +838,22 @@ fi
 AC_MSG_CHECKING([whether to turn sanitizers on])
 if test "x$with_sanitizer" != "x"; then
     AC_MSG_RESULT([yes ($with_sanitizer)])
-    SANITIZER_FLAGS="-O1 -fno-omit-frame-pointer -fsanitize=$with_sanitizer -frtti -static-libasan"
+    AC_MSG_CHECKING([whether to use libasan or libsan])
+    LIBSAN=-static-libasan
+    for flag in -static-libasan -static-libsan ; do
+        save_CXXFLAGS=$CXXFLAGS
+        CXXFLAGS="$CXXFLAGS -O1 -fno-omit-frame-pointer -fsanitize=$with_sanitizer -frtti $flag -Werror"
+        AC_LANG_PUSH([C++])
+        AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+            ]])],[CXXFLAGS_CXXSTD=$flag])
+        AC_LANG_POP([C++])
+        CXXFLAGS=$save_CXXFLAGS
+        if test -n "$CXXFLAGS_CXXSTD"; then
+            LIBSAN=$flag
+            break
+        fi
+    done
+    SANITIZER_FLAGS="-O1 -fno-omit-frame-pointer -fsanitize=$with_sanitizer -frtti $LIBSAN"
     CXXFLAGS="$CXXFLAGS $SANITIZER_FLAGS"
     CFLAGS="$CFLAGS $SANITIZER_FLAGS"
 else
@@ -836,9 +875,9 @@ AC_DEFINE_UNQUOTED([LIBFUZZER],[$LIBFUZZER],[Define to 1 if this is a libfuzzer 
 AM_CONDITIONAL([ENABLE_LIBFUZZER], [test "$LIBFUZZER" = "1"])
 
 # check for C++11 support
-HAVE_CXX11=
-AC_MSG_CHECKING([whether $CXX supports C++17, C++14 or C++11])
-for flag in -std=c++17 -std=gnu++14 -std=gnu++1y -std=c++14 -std=c++1y -std=gnu++11 -std=gnu++0x -std=c++11 -std=c++0x ; do
+HAVE_CXXSTD=
+AC_MSG_CHECKING([whether $CXX supports C++17])
+for flag in -std=c++17 -std=c++1z ; do
     save_CXXFLAGS=$CXXFLAGS
     CXXFLAGS="$CXXFLAGS $flag -Werror"
     AC_LANG_PUSH([C++])
@@ -849,22 +888,25 @@ for flag in -std=c++17 -std=gnu++14 -std=gnu++1y -std=c++14 -std=c++1y -std=gnu+
         void f(std::vector<int> & v, std::function<bool(int, int)> fn) {
             std::sort(v.begin(), v.end(), fn);
         }
-        ]])],[CXXFLAGS_CXX11=$flag])
+        ]])],[CXXFLAGS_CXXSTD=$flag])
     AC_LANG_POP([C++])
     CXXFLAGS=$save_CXXFLAGS
-    if test -n "$CXXFLAGS_CXX11"; then
-        HAVE_CXX11=TRUE
+    if test -n "$CXXFLAGS_CXXSTD"; then
+        HAVE_CXXSTD=TRUE
         break
     fi
 done
-if test "$HAVE_CXX11" = TRUE; then
-    AC_MSG_RESULT([yes ($CXXFLAGS_CXX11)])
+if test "$HAVE_CXXSTD" = TRUE; then
+    AC_MSG_RESULT([yes ($CXXFLAGS_CXXSTD)])
 else
     AC_MSG_ERROR(no)
 fi
 
+AS_IF([test "$ENABLE_GTKAPP" != true],
+[CXXFLAGS="$CXXFLAGS $CXXFLAGS_CXXSTD"])
+
 STD_FILESYSTEM=
-if test "$CXXFLAGS_CXX11" = "-std=c++17" -a "$ENABLE_ANDROIDAPP" != "true" ; then
+if test "$CXXFLAGS_CXXSTD" = "-std=c++17" -a "$ENABLE_ANDROIDAPP" != "true" ; then
     save_CXXFLAGS=$CXXFLAGS
     CXXFLAGS="$CXXFLAGS -Werror"
     save_LIBS=$LIBS
@@ -1303,12 +1345,12 @@ else
     ALLOWED_LANGUAGES="de_DE en_GB en_US es_ES fr_FR it nl pt_BR pt_PT ru"
 fi
 
-AS_IF([test "$enable_freemium" = "yes"],
-      [AC_DEFINE([ENABLE_FREEMIUM],1,[Whether to compile and enable freemium mode])])
+AS_IF([test "$enable_feature_lock" = "yes"],
+      [AC_DEFINE([ENABLE_FEATURE_LOCK],1,[Whether to compile and enable feature locking])])
 
-DISABLED_COMMANDS=
-if test "$enable_freemium" = "yes"; then
-    DISABLED_COMMANDS=".uno:DataDataPilotRun .uno:RecalcPivotTable \
+LOCKED_COMMANDS=
+if test "$enable_feature_lock" = "yes"; then
+    LOCKED_COMMANDS=".uno:DataDataPilotRun .uno:RecalcPivotTable \
 .uno:DeletePivotTable .uno:SamplingDialog .uno:DescriptiveStatisticsDialog \
 .uno:AnalysisOfVarianceDialog .uno:CorrelationDialog .uno:CovarianceDialog \
 .uno:ExponentialSmoothingDialog .uno:MovingAverageDialog .uno:RegressionDialog \
@@ -1318,74 +1360,81 @@ if test "$enable_freemium" = "yes"; then
 .uno:Watermark .uno:InsertIndexesEntry .uno:InsertAuthoritiesEntry \
 .uno:InsertMultiIndex .uno:SlideMasterPage downloadas-epub downloadas-rtf masterslidebutton"
 fi
-AC_DEFINE_UNQUOTED([DISABLED_COMMANDS],["$DISABLED_COMMANDS"],[Default value of freemium.disabled_commands])
-AC_SUBST(DISABLED_COMMANDS)
+AC_DEFINE_UNQUOTED([LOCKED_COMMANDS],["$LOCKED_COMMANDS"],[Default value of feature_lock.locked_commands])
+AC_SUBST(LOCKED_COMMANDS)
 
-PURCHASE_TITLE=
-if test "$enable_freemium" = "yes"; then
-    PURCHASE_TITLE="Unlock your potential"
+UNLOCK_TITLE=
+if test "$enable_feature_lock" = "yes"; then
+    UNLOCK_TITLE="Unlock your potential"
 fi
-AC_DEFINE_UNQUOTED([PURCHASE_TITLE],["$PURCHASE_TITLE"],[Default value of freemium.purchase_title])
-AC_SUBST(PURCHASE_TITLE)
+AC_DEFINE_UNQUOTED([UNLOCK_TITLE],["$UNLOCK_TITLE"],[Default value of feature_lock.unlock_title])
+AC_SUBST(UNLOCK_TITLE)
 
-PURCHASE_LINK=
-if test "$enable_freemium" = "yes"; then
-    PURCHASE_LINK="https://www.collaboraoffice.com/subscriptions/"
+UNLOCK_LINK=
+if test "$enable_feature_lock" = "yes"; then
+    UNLOCK_LINK="https://www.collaboraoffice.com/subscriptions/"
 fi
-AC_DEFINE_UNQUOTED([PURCHASE_LINK],["$PURCHASE_LINK"],[Default value of freemium.purchase_link])
-AC_SUBST(PURCHASE_LINK)
+AC_DEFINE_UNQUOTED([UNLOCK_LINK],["$UNLOCK_LINK"],[Default value of feature_lock.unlock_link])
+AC_SUBST(UNLOCK_LINK)
 
-PURCHASE_DESCRIPTION=
-if test "$enable_freemium" = "yes"; then
-    PURCHASE_DESCRIPTION="Head over to the subscription page and discover all the features:"
+UNLOCK_DESCRIPTION=
+if test "$enable_feature_lock" = "yes"; then
+    UNLOCK_DESCRIPTION="Head over to the details page and discover all the features:"
 fi
-AC_DEFINE_UNQUOTED([PURCHASE_DESCRIPTION],["$PURCHASE_DESCRIPTION"],[Default value of freemium.purchase_description])
-AC_SUBST(PURCHASE_DESCRIPTION)
+AC_DEFINE_UNQUOTED([UNLOCK_DESCRIPTION],["$UNLOCK_DESCRIPTION"],[Default value of feature_lock.unlock_description])
+AC_SUBST(UNLOCK_DESCRIPTION)
 
-WRITER_SUBSCRIPTION_HIGHLIGHTS=
-if test "$enable_freemium" = "yes"; then
-    WRITER_SUBSCRIPTION_HIGHLIGHTS="Review and write with ease"
+WRITER_UNLOCK_HIGHLIGHTS=
+if test "$enable_feature_lock" = "yes"; then
+    WRITER_UNLOCK_HIGHLIGHTS="Review and write with ease"
 fi
-AC_DEFINE_UNQUOTED([WRITER_SUBSCRIPTION_HIGHLIGHTS],["$WRITER_SUBSCRIPTION_HIGHLIGHTS"],[Default value of freemium.writer_subscription_highlights])
-AC_SUBST(WRITER_SUBSCRIPTION_HIGHLIGHTS)
+AC_DEFINE_UNQUOTED([WRITER_UNLOCK_HIGHLIGHTS],["$WRITER_UNLOCK_HIGHLIGHTS"],[Default value of feature_lock.writer_unlock_highlights])
+AC_SUBST(WRITER_UNLOCK_HIGHLIGHTS)
 
-CALC_SUBSCRIPTION_HIGHLIGHTS=
-if test "$enable_freemium" = "yes"; then
-    CALC_SUBSCRIPTION_HIGHLIGHTS="Get a better picture of your data"
+CALC_UNLOCK_HIGHLIGHTS=
+if test "$enable_feature_lock" = "yes"; then
+    CALC_UNLOCK_HIGHLIGHTS="Get a better picture of your data"
 fi
-AC_DEFINE_UNQUOTED([CALC_SUBSCRIPTION_HIGHLIGHTS],["$CALC_SUBSCRIPTION_HIGHLIGHTS"],[Default value of freemium.calc_subscription_highlights])
-AC_SUBST(CALC_SUBSCRIPTION_HIGHLIGHTS)
+AC_DEFINE_UNQUOTED([CALC_UNLOCK_HIGHLIGHTS],["$CALC_UNLOCK_HIGHLIGHTS"],[Default value of feature_lock.calc_unlock_highlights])
+AC_SUBST(CALC_UNLOCK_HIGHLIGHTS)
 
-IMPRESS_SUBSCRIPTION_HIGHLIGHTS=
-if test "$enable_freemium" = "yes"; then
-    IMPRESS_SUBSCRIPTION_HIGHLIGHTS="Nail your next presentation"
+IMPRESS_UNLOCK_HIGHLIGHTS=
+if test "$enable_feature_lock" = "yes"; then
+    IMPRESS_UNLOCK_HIGHLIGHTS="Nail your next presentation"
 fi
-AC_DEFINE_UNQUOTED([IMPRESS_SUBSCRIPTION_HIGHLIGHTS],["$IMPRESS_SUBSCRIPTION_HIGHLIGHTS"],[Default value of freemium.impress_subscription_highlights])
-AC_SUBST(IMPRESS_SUBSCRIPTION_HIGHLIGHTS)
+AC_DEFINE_UNQUOTED([IMPRESS_UNLOCK_HIGHLIGHTS],["$IMPRESS_UNLOCK_HIGHLIGHTS"],[Default value of feature_lock.impress_unlock_highlights])
+AC_SUBST(IMPRESS_UNLOCK_HIGHLIGHTS)
 
-DRAW_SUBSCRIPTION_HIGHLIGHTS=
-if test "$enable_freemium" = "yes"; then
-    DRAW_SUBSCRIPTION_HIGHLIGHTS="Draw and get organized"
+DRAW_UNLOCK_HIGHLIGHTS=
+if test "$enable_feature_lock" = "yes"; then
+    DRAW_UNLOCK_HIGHLIGHTS="Draw and get organized"
 fi
-AC_DEFINE_UNQUOTED([DRAW_SUBSCRIPTION_HIGHLIGHTS],["$DRAW_SUBSCRIPTION_HIGHLIGHTS"],[Default value of freemium.draw_subscription_highlights])
-AC_SUBST(DRAW_SUBSCRIPTION_HIGHLIGHTS)
+AC_DEFINE_UNQUOTED([DRAW_UNLOCK_HIGHLIGHTS],["$DRAW_UNLOCK_HIGHLIGHTS"],[Default value of feature_lock.draw_unlock_highlights])
+AC_SUBST(DRAW_UNLOCK_HIGHLIGHTS)
 
-FREEMIUM_CONFIGURATION=
-if test "$enable_freemium" = "yes"; then
-    FREEMIUM_CONFIGURATION="<freemium desc=\"Freemium settings\">
-        <disabled_commands desc=\"List of commands to disable the functionality.\" default=\"$DISABLED_COMMANDS\">$DISABLED_COMMANDS</disabled_commands>
-        <purchase_title desc=\"Title to show user when prompting the subscription popup\" default=\"$PURCHASE_TITLE\">$PURCHASE_TITLE</purchase_title>
-        <purchase_link desc=\"Link from where user can buy the subscription\" default=\"$PURCHASE_LINK\">$PURCHASE_LINK</purchase_link>
-        <purchase_description desc=\"Description about the subscription\" default=\"$PURCHASE_DESCRIPTION\">$PURCHASE_DESCRIPTION</purchase_description>
-        <writer_subscription_highlights desc=\"Short note about Writer benefits of subscription\" default=\"$WRITER_SUBSCRIPTION_HIGHLIGHTS\">$WRITER_SUBSCRIPTION_HIGHLIGHTS</writer_subscription_highlights>
-        <calc_subscription_highlights desc=\"Short note about Calc benefits of subscription\" default=\"$CALC_SUBSCRIPTION_HIGHLIGHTS\">$CALC_SUBSCRIPTION_HIGHLIGHTS</calc_subscription_highlights>
-        <impress_subscription_highlights desc=\"Short note about Impress benefits of subscription\" default=\"$IMPRESS_SUBSCRIPTION_HIGHLIGHTS\">$IMPRESS_SUBSCRIPTION_HIGHLIGHTS</impress_subscription_highlights>
-        <draw_subscription_highlights desc=\"Short note about Draw benefits of subscription\" default=\"$DRAW_SUBSCRIPTION_HIGHLIGHTS\">$DRAW_SUBSCRIPTION_HIGHLIGHTS</draw_subscription_highlights>
-    </freemium>"
+LOCK_CONFIGURATION=
+if test "$enable_feature_lock" = "yes"; then
+    LOCK_CONFIGURATION="<feature_lock desc=\"Feature lock settings\">
+        <locked_hosts desc=\"Allow/deny feature-locked hosts. When allowed, the below host specification overrides the CheckFileInfo response.\" allow=\"false\">
+            <fallback desc=\"What to do if the given host is not covered by any rule in locked_hosts\" read_only=\"true\" disabled_commands=\"true\"/>
+            <host desc=\"Regex pattern of hostname to set as full-featured or locked.\" read_only=\"false\" disabled_commands=\"false\">localhost</host>
+            <host desc=\"Regex pattern of hostname to set as full-featured or locked.\" read_only=\"false\" disabled_commands=\"false\">10\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}</host>
+            <host desc=\"Regex pattern of hostname to set as full-featured or locked.\" read_only=\"false\" disabled_commands=\"false\">172\\.3[01]\\.[0-9]{1,3}\\.[0-9]{1,3}</host>
+        </locked_hosts>
+        <is_lock_readonly desc=\"Give locked users read only access to the documents. If this is set to true it will make all the locked_host readonly who has disabled_commands set to true\" type=\"bool\" default=\"false\">false</is_lock_readonly>
+        <locked_commands desc=\"List of commands to lock the functionality\" default=\"$LOCKED_COMMANDS\">$LOCKED_COMMANDS</locked_commands>
+        <unlock_title desc=\"Title to show user when prompting the unlock popup\" default=\"$UNLOCK_TITLE\">$UNLOCK_TITLE</unlock_title>
+        <unlock_link desc=\"Link from where user can unlock the features\" default=\"$UNLOCK_LINK\">$UNLOCK_LINK</unlock_link>
+        <unlock_description desc=\"Description about unlocking features\" default=\"$UNLOCK_DESCRIPTION\">$UNLOCK_DESCRIPTION</unlock_description>
+        <writer_unlock_highlights desc=\"Short note about Writer benefits of unlocking\" default=\"$WRITER_UNLOCK_HIGHLIGHTS\">$WRITER_UNLOCK_HIGHLIGHTS</writer_unlock_highlights>
+        <calc_unlock_highlights desc=\"Short note about Calc benefits of unlocking\" default=\"$CALC_UNLOCK_HIGHLIGHTS\">$CALC_UNLOCK_HIGHLIGHTS</calc_unlock_highlights>
+        <impress_unlock_highlights desc=\"Short note about Impress benefits of unlocking\" default=\"$IMPRESS_UNLOCK_HIGHLIGHTS\">$IMPRESS_UNLOCK_HIGHLIGHTS</impress_unlock_highlights>
+        <draw_unlock_highlights desc=\"Short note about Draw benefits of unlocking\" default=\"$DRAW_UNLOCK_HIGHLIGHTS\">$DRAW_UNLOCK_HIGHLIGHTS</draw_unlock_highlights>
+    </feature_lock>"
 fi
 
-AC_SUBST(FREEMIUM_CONFIGURATION)
-AM_SUBST_NOTMAKE(FREEMIUM_CONFIGURATION)
+AC_SUBST(LOCK_CONFIGURATION)
+AM_SUBST_NOTMAKE(LOCK_CONFIGURATION)
 
 AS_IF([test "$enable_feature_restriction" = "yes"],
     [AC_DEFINE([ENABLE_FEATURE_RESTRICTION],1,[Whether to compile and enable feature restrictions])])
@@ -1493,6 +1542,8 @@ Configuration:
     LO integration tests      ${lo_msg}
     SSL support               $ssl_msg
     Debug & low security      $debug_msg
+    Experimental features     $experimental_msg
+    Test assertion logging    $log_asserts_msg
     Uglification and bundling $bundle_msg
     Anonymization             $anonym_msg
     Set capabilities          $setcap_msg

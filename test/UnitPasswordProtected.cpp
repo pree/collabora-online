@@ -30,12 +30,16 @@ class UnitPasswordProtected : public UnitWSD
     TestResult testPasswordProtectedBinaryMSOfficeDocument();
 
 public:
+    UnitPasswordProtected()
+        : UnitWSD("UnitPasswordProtect")
+    {
+    }
+
     void invokeWSDTest() override;
 };
 
 UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithoutPassword()
 {
-    const char* testname = "testPasswordProtectedDocumentWithoutPassword";
     try
     {
         std::string documentPath, documentURL;
@@ -50,8 +54,8 @@ UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithout
         // Send a load request without password first
         helpers::sendTextFrame(socket, "load url=" + documentURL);
 
-        const auto response = helpers::getResponseString(socket, "error:", testname);
-        StringVector tokens(Util::tokenize(response, ' '));
+        auto response = helpers::getResponseString(socket, "error:", testname);
+        StringVector tokens(StringVector::tokenize(response, ' '));
         LOK_ASSERT_EQUAL(static_cast<size_t>(3), tokens.size());
 
         std::string errorCommand;
@@ -60,6 +64,10 @@ UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithout
         COOLProtocol::getTokenString(tokens[2], "kind", errorKind);
         LOK_ASSERT_EQUAL(std::string("load"), errorCommand);
         LOK_ASSERT_EQUAL(std::string("passwordrequired:to-view"), errorKind);
+
+        response = helpers::getResponseString(socket, "error:", testname);
+        LOK_ASSERT_MESSAGE("Unexpected faileddocloading load error message",
+            response != "error: cmd=load kind=faileddocloading");
     }
     catch (const Poco::Exception& exc)
     {
@@ -71,7 +79,6 @@ UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithout
 
 UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithWrongPassword()
 {
-    const char* testname = "testPasswordProtectedDocumentWithWrongPassword";
     try
     {
         std::string documentPath, documentURL;
@@ -87,7 +94,7 @@ UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithWro
         helpers::sendTextFrame(socket, "load url=" + documentURL + " password=2");
 
         const auto response = helpers::getResponseString(socket, "error:", testname);
-        StringVector tokens(Util::tokenize(response, ' '));
+        StringVector tokens(StringVector::tokenize(response, ' '));
         LOK_ASSERT_EQUAL(static_cast<size_t>(3), tokens.size());
 
         std::string errorCommand;
@@ -107,7 +114,6 @@ UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithWro
 
 UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithCorrectPassword()
 {
-    const char* testname = "testPasswordProtectedDocumentWithCorrectPassword";
     try
     {
         std::string documentPath, documentURL;
@@ -140,7 +146,6 @@ UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedDocumentWithCor
 
 UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedOOXMLDocument()
 {
-    const char* testname = "testPasswordProtectedOOXMLDocument";
     try
     {
         std::string documentPath, documentURL;
@@ -168,7 +173,6 @@ UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedOOXMLDocument()
 
 UnitBase::TestResult UnitPasswordProtected::testPasswordProtectedBinaryMSOfficeDocument()
 {
-    const char* testname = "testPasswordProtectedBinaryMSOfficeDocument";
     try
     {
         std::string documentPath, documentURL;

@@ -13,34 +13,10 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 				'type': 'toolbox',
 				'children': [
 					{
-						'id': 'menu',
-						'type': 'toolitem',
-						'text': _('Menu'),
-						'command': '.uno:Menubar'
-					},
-					{
 						'id': 'save',
 						'type': 'toolitem',
 						'text': _('Save'),
 						'command': '.uno:Save'
-					},
-					{
-						'id': 'presentation',
-						'type': 'toolitem',
-						'text': _('Start Presentation'),
-						'command': '.uno:Presentation'
-					},
-					{
-						'id': 'undo',
-						'type': 'toolitem',
-						'text': _('Undo'),
-						'command': '.uno:Undo'
-					},
-					{
-						'id': 'redo',
-						'type': 'toolitem',
-						'text': _('Redo'),
-						'command': '.uno:Redo'
 					}
 				]
 			}
@@ -131,6 +107,11 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 				'context': 'Draw|DrawLine|3DObject|MultiObject|Graphic|DrawFontwork'
 			},
 			{
+				'text': _('~View'),
+				'id': 'View',
+				'name': 'View',
+			},
+			{
 				'text': _('~Help'),
 				'id': '-2',
 				'name': 'Help',
@@ -149,6 +130,7 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 				this.getFormatTab(),
 				this.getTableTab(),
 				this.getDrawTab(),
+				this.getViewTab(),
 				this.getHelpTab()
 			], selectedId);
 	},
@@ -158,8 +140,20 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 		var hasPrint = !this._map['wopi'].HidePrintOption;
 		var hasSaveAs = !this._map['wopi'].UserCanNotWriteRelative;
 		var hasShare = this._map['wopi'].EnableShare;
+		var hasGroupedDownloadAs = !!window.groupDownloadAsForNb;
 
 		var content = [
+			{
+				'type': 'toolbox',
+				'children': [
+					{
+						'id': 'file-save',
+						'type': 'bigtoolitem',
+						'text': _('Save'),
+						'command': '.uno:Save'
+					}
+				]
+			},
 			hasSaveAs ?
 				{
 					'id': 'file-saveas',
@@ -194,55 +188,28 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 					'type': 'bigtoolitem',
 					'text': _UNO('.uno:Print', 'presentation'),
 					'command': '.uno:Print'
-				} : {},
-			{
-				'id': 'file-downloadas-odp-downloadas-odg',
+				} : {}
+		];
+		 
+		if (hasGroupedDownloadAs) {
+			content.push({
+				'id': 'downloadas-container',
 				'type': 'container',
+				'text': '',
+				'enabled': 'true',
 				'children': [
 					{
-						'id': 'downloadas-odp',
+						'id': 'downloadas2',
 						'type': 'menubartoolitem',
-						'text': _('ODF Presentation (.odp)'),
-						'command': ''
-					},
-					{
-						'id': 'downloadas-odg',
-						'type': 'menubartoolitem',
-						'text': _('ODF Drawing (.odg)'),
-						'command': ''
-					},
-				],
-				'vertical': 'true'
-			},
-			{
-				'id': 'file-downloadas-ppt-downloadas-pptx',
+						'text': _('Download as'),
+						'command': '.uno:InsertGraphic'
+					}
+				]
+			});
+
+			content.push({
 				'type': 'container',
 				'children': [
-					{
-						'id': 'downloadas-ppt',
-						'type': 'menubartoolitem',
-						'text': _('PowerPoint 2003 Presentation (.ppt)'),
-						'command': ''
-					},
-					{
-						'id': 'downloadas-pptx',
-						'type': 'menubartoolitem',
-						'text': _('PowerPoint Presentation (.pptx)'),
-						'command': ''
-					},
-				],
-				'vertical': 'true'
-			},
-			{
-				'id': 'file-downloadas-pdf',
-				'type': 'container',
-				'children': [
-					{
-						'id': 'downloadas-pdf',
-						'type': 'menubartoolitem',
-						'text': _('PDF Document (.pdf)'),
-						'command': ''
-					},
 					{
 						'id': 'repair',
 						'type': 'menubartoolitem',
@@ -251,14 +218,154 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 					}
 				],
 				'vertical': 'true'
-			}
-		];
+			});
+		} else {
+			content = content.concat([
+				{
+					'id': 'file-downloadas-odp-downloadas-odg',
+					'type': 'container',
+					'children': [
+						{
+							'id': 'downloadas-odp',
+							'type': 'menubartoolitem',
+							'text': _('ODF Presentation (.odp)'),
+							'command': ''
+						},
+						{
+							'id': 'downloadas-odg',
+							'type': 'menubartoolitem',
+							'text': _('ODF Drawing (.odg)'),
+							'command': ''
+						},
+					],
+					'vertical': 'true'
+				},
+				{
+					'id': 'file-downloadas-ppt-downloadas-pptx',
+					'type': 'container',
+					'children': [
+						{
+							'id': 'downloadas-ppt',
+							'type': 'menubartoolitem',
+							'text': _('PowerPoint 2003 Presentation (.ppt)'),
+							'command': ''
+						},
+						{
+							'id': 'downloadas-pptx',
+							'type': 'menubartoolitem',
+							'text': _('PowerPoint Presentation (.pptx)'),
+							'command': ''
+						},
+					],
+					'vertical': 'true'
+				},
+				{
+					'id': 'file-downloadas-pdf',
+					'type': 'container',
+					'children': [
+						{
+							'id': 'downloadas-pdf',
+							'type': 'menubartoolitem',
+							'text': _('PDF Document (.pdf)'),
+							'command': ''
+						},
+						{
+							'id': 'repair',
+							'type': 'menubartoolitem',
+							'text': _('Repair'),
+							'command': _('Repair')
+						}
+					],
+					'vertical': 'true'
+				}
+			]);
+		}
 
 		return this.getTabPage('File', content);
 	},
 
+	getViewTab: function() {
+		var content = [
+			{
+				'type': 'bigtoolitem',
+				'text': _('Presentation'),
+				'command': '.uno:Presentation'
+			},
+			{
+				'id': 'fullscreen',
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:FullScreen'),
+				'command': '.uno:FullScreen'
+			},
+			{
+				'id': 'zoomreset',
+				'type': 'menubartoolitem',
+				'text': _('Reset zoom'),
+				'command': _('Reset zoom')
+			},
+			{
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'zoomout',
+								'type': 'menubartoolitem',
+								'text': _UNO('.uno:ZoomMinus'),
+								'command': '.uno:ZoomMinus'
+							}
+						]
+					},
+					{
+						'type': 'toolbox',
+						'children': [
+							{
+								'id': 'zoomin',
+								'type': 'menubartoolitem',
+								'text': _UNO('.uno:ZoomPlus'),
+								'command': '.uno:ZoomPlus'
+							}
+						]
+					}
+				],
+				'vertical': 'true'
+			},
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:Sidebar'),
+				'command': '.uno:Sidebar'
+			},
+			{
+				'id': 'showstatusbar',
+				'type': 'menubartoolitem',
+				'text': _('Toggle Status Bar'),
+				'command': _('Show Status Bar')
+			}
+		];
+
+		return this.getTabPage('View', content);
+	},
+
 	getHomeTab: function() {
 		var content = [
+			{
+				'id': 'home-undo-redo',
+				'type': 'container',
+				'children': [
+					{
+						'type': 'toolitem',
+						'text': _UNO('.uno:Undo'),
+						'command': '.uno:Undo'
+					},
+					{
+						'type': 'toolitem',
+						'text': _UNO('.uno:Redo'),
+						'command': '.uno:Redo'
+					},
+				],
+				'vertical': 'true'
+			},
 			{
 				'type': 'bigtoolitem',
 				'text': _UNO('.uno:Paste'),
@@ -563,7 +670,7 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 						'children': [
 							{
 								'type': 'toolitem',
-								'text': 'Connectors',
+								'text': _UNO('.uno:ConnectorToolbox', 'presentation'),
 								'command': '.uno:ConnectorToolbox'
 							}
 						]
@@ -640,7 +747,7 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 			},
 			{
 				'type': 'bigtoolitem',
-				'text': _UNO('.uno:Presentation'),
+				'text': _('Presentation'),
 				'command': '.uno:Presentation'
 			},
 			{
@@ -958,62 +1065,6 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 				'command': '.uno:ModifyPage'
 			},
 			{
-				'type': 'container',
-				'children': [
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'fullscreen',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:FullScreen'),
-								'command': '.uno:FullScreen'
-							}
-						]
-					},
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomreset',
-								'type': 'menubartoolitem',
-								'text': _('Reset Zoom'),
-								'command': _('Reset zoom')
-							}
-						]
-					}
-				],
-				'vertical': 'true'
-			},
-			{
-				'type': 'container',
-				'children': [
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomout',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:ZoomMinus'),
-								'command': '.uno:ZoomMinus'
-							}
-						]
-					},
-					{
-						'type': 'toolbox',
-						'children': [
-							{
-								'id': 'zoomin',
-								'type': 'menubartoolitem',
-								'text': _UNO('.uno:ZoomPlus'),
-								'command': '.uno:ZoomPlus'
-							}
-						]
-					}
-				],
-				'vertical': 'true'
-			},
-			{
 				'type': 'bigtoolitem',
 				'text': _UNO('.uno:MasterSlidesPanel', 'presentation'),
 				'command': '.uno:MasterSlidesPanel'
@@ -1043,6 +1094,11 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 					}
 				],
 				'vertical': 'true'
+			},
+			{
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:SelectAll'),
+				'command': '.uno:SelectAll'
 			},
 			{
 				'type': 'container',
@@ -1137,6 +1193,12 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 				'type': 'bigtoolitem',
 				'text': _UNO('.uno:SpellDialog'),
 				'command': '.uno:SpellDialog'
+			},
+			{
+				'id': 'LanguageMenu',
+				'type': 'bigtoolitem',
+				'text': _UNO('.uno:LanguageMenu'),
+				'command': '.uno:LanguageMenu'
 			},
 			{
 				'id': 'Review-Section-Language1',
@@ -1688,7 +1750,7 @@ L.Control.NotebookbarImpress = L.Control.NotebookbarWriter.extend({
 						'children': [
 							{
 								'type': 'toolitem',
-								'text': 'Connectors',
+								'text': _UNO('.uno:ConnectorToolbox', 'presentation'),
 								'command': '.uno:ConnectorToolbox'
 							}
 						]

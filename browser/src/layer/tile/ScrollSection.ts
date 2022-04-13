@@ -37,6 +37,9 @@ class ScrollSection {
 	// Implemented by container.
 	resetAnimation: () => void;
 
+	// Implemented by container.
+	isCalcRTL: () => boolean;
+
 	map: any;
 	autoScrollTimer: any;
 	pendingScrollEvent: any = null;
@@ -57,6 +60,7 @@ class ScrollSection {
 	}
 
 	public onInitialize () {
+		this.sectionProperties.docLayer = this.map._docLayer;
 		this.sectionProperties.mapPane = (<HTMLElement>(document.querySelectorAll('.leaflet-map-pane')[0]));
 		this.sectionProperties.defaultCursorStyle = this.sectionProperties.mapPane.style.cursor;
 
@@ -103,6 +107,9 @@ class ScrollSection {
 		this.sectionProperties.animatingVerticalScrollBar = false;
 		this.sectionProperties.animatingHorizontalScrollBar = false;
 
+		this.sectionProperties.pointerSyncWithVerticalScrollBar = true;
+		this.sectionProperties.pointerSyncWithHorizontalScrollBar = true;
+		this.sectionProperties.pointerReCaptureSpacer = null; // Clicked point of the scroll bar.
 	}
 
 	public completePendingScroll() {
@@ -124,9 +131,10 @@ class ScrollSection {
 	}
 
 	public onScrollBy (e: any) {
-		if (this.map._docLayer._docType !== 'spreadsheet')
-			this.map.panBy(new L.Point(e.x, e.y), {animate: false});
-		else {
+		if (this.map._docLayer._docType !== 'spreadsheet') {
+			this.scrollVerticalWithOffset(e.y);
+			this.scrollHorizontalWithOffset(e.x);
+		} else {
 			// For Calc, top position shouldn't be below zero, for others, we can activate a similar check if needed (while keeping in mind that top position may be below zero for others).
 			var docTopLef = this.containerObject.getDocumentTopLeft();
 
@@ -163,9 +171,14 @@ class ScrollSection {
 				this.onScrollBy({x: e.vx, y: e.vy});
 				// Unfortunately, dragging outside the map doesn't work for the map element.
 				// We will keep this until we remove leaflet.
-				if (L.Map.THIS.mouse && L.Map.THIS.mouse._mouseDown && this.containerObject.targetBoundSectionListContains(L.CSections.Tiles.name) && (<any>window).mode.isDesktop() && this.containerObject.draggingSomething && L.Map.THIS._docLayer._docType === 'spreadsheet') {
+				if (L.Map.THIS.mouse
+				&& L.Map.THIS.mouse._mouseDown
+				&& this.containerObject.targetBoundSectionListContains(L.CSections.Tiles.name)
+				&& (<any>window).mode.isDesktop()
+				&& this.containerObject.draggingSomething
+				&& L.Map.THIS._docLayer._docType === 'spreadsheet') {
 					var temp = this.containerObject.positionOnMouseDown;
-					var tempPos = [temp[0] * app.dpiScale, temp[1] * app.dpiScale];
+					var tempPos = [(this.isCalcRTL() ? this.map._size.x - temp[0] : temp[0]) * app.dpiScale, temp[1] * app.dpiScale];
 					var docTopLeft = app.sectionContainer.getDocumentTopLeft();
 					tempPos = [tempPos[0] + docTopLeft[0], tempPos[1] + docTopLeft[1]];
 					tempPos = [Math.round(tempPos[0] * app.pixelsToTwips), Math.round(tempPos[1] * app.pixelsToTwips)];
@@ -181,12 +194,15 @@ class ScrollSection {
 
 		if (e.pos.y > e.map._size.y - 50) {
 			vy = 50;
-		} else if (e.pos.y < 50) {
+		} else if (e.pos.y < 50 && e.map._getTopLeftPoint().y > 50) {
 			vy = -50;
 		}
-		if (e.pos.x > e.map._size.x - 50) {
+
+		const mousePosX: number = this.isCalcRTL() ? e.map._size.x - e.pos.x : e.pos.x;
+		const mapLeft: number = this.isCalcRTL() ? e.map._size.x - e.map._getTopLeftPoint().x : e.map._getTopLeftPoint().x;
+		if (mousePosX > e.map._size.x - 50) {
 			vx = 50;
-		} else if (e.pos.x < 50) {
+		} else if (mousePosX < 50 && mapLeft > 50) {
 			vx = -50;
 		}
 
@@ -384,7 +400,7 @@ class ScrollSection {
 
 		this.context.fillStyle = '#7E8182';
 
-		var startX = this.size[0] - this.sectionProperties.scrollBarThickness - this.sectionProperties.edgeOffset;
+		var startX = this.isCalcRTL() ? this.sectionProperties.edgeOffset : this.size[0] - this.sectionProperties.scrollBarThickness - this.sectionProperties.edgeOffset;
 
 		this.context.fillRect(startX, scrollProps.startY, this.sectionProperties.scrollBarThickness, scrollProps.scrollSize - this.sectionProperties.scrollBarThickness);
 
@@ -416,7 +432,11 @@ class ScrollSection {
 
 		var startY = this.size[1] - this.sectionProperties.scrollBarThickness - this.sectionProperties.edgeOffset;
 
-		this.context.fillRect(scrollProps.startX, startY, scrollProps.scrollSize - this.sectionProperties.scrollBarThickness, this.sectionProperties.scrollBarThickness);
+		const sizeX = scrollProps.scrollSize - this.sectionProperties.scrollBarThickness;
+		const docWidth: number = this.map.getPixelBoundsCore().getSize().x;
+		const startX = this.isCalcRTL() ? docWidth - scrollProps.startX - sizeX : scrollProps.startX;
+
+		this.context.fillRect(startX, startY, sizeX, this.sectionProperties.scrollBarThickness);
 
 		this.context.globalAlpha = 1.0;
 
@@ -552,8 +572,10 @@ class ScrollSection {
 	}
 
 	private isMouseOnScrollBar (point: Array<number>) {
+		const mirrorX = this.isCalcRTL();
 		if (this.documentTopLeft[1] >= 0) {
-			if (point[0] >= this.size[0] - this.sectionProperties.usableThickness) {
+			if ((!mirrorX && point[0] >= this.size[0] - this.sectionProperties.usableThickness)
+				|| (mirrorX && point[0] <= this.sectionProperties.usableThickness)) {
 				if (point[1] > this.sectionProperties.yOffset) {
 					this.showVerticalScrollBar();
 				}
@@ -568,7 +590,8 @@ class ScrollSection {
 
 		if (this.documentTopLeft[0] >= 0) {
 			if (point[1] >= this.size[1] - this.sectionProperties.usableThickness) {
-				if (point[0] <= this.size[0] - this.sectionProperties.horizontalScrollRightOffset && point[0] >= this.sectionProperties.xOffset) {
+				if ((!mirrorX && point[0] <= this.size[0] - this.sectionProperties.horizontalScrollRightOffset && point[0] >= this.sectionProperties.xOffset)
+					|| (mirrorX && point[0] >= this.sectionProperties.horizontalScrollRightOffset && point[0] >= this.sectionProperties.xOffset)) {
 					this.showHorizontalScrollBar();
 				}
 				else {
@@ -604,6 +627,8 @@ class ScrollSection {
 		if (go) {
 			this.map.scroll(0, offset / app.dpiScale, {});
 			this.onUpdateScrollOffset();
+			if (app.file.fileBasedView)
+				this.map._docLayer._checkSelectedPart();
 		}
 	}
 
@@ -628,6 +653,76 @@ class ScrollSection {
 		}
 	}
 
+	private isMouseInsideDocumentAnchor (point: Array<number>): boolean {
+		var docSection = this.containerObject.getDocumentAnchorSection();
+		return this.containerObject.doesSectionIncludePoint(docSection, point);
+	}
+
+	private isMousePointerSycnWithVerticalScrollBar (scrollProps: any, position: Array<number>): boolean {
+		// Keep this desktop-only for now.
+		if (!(<any>window).mode.isDesktop())
+			return true;
+
+		var spacer = 0;
+		if (!this.sectionProperties.pointerSyncWithVerticalScrollBar) {
+			spacer = this.sectionProperties.pointerReCaptureSpacer;
+		}
+
+		var pointerIsSyncWithScrollBar = false;
+		if (this.sectionProperties.pointerSyncWithVerticalScrollBar) {
+			pointerIsSyncWithScrollBar = scrollProps.startY < position[1] && scrollProps.startY + scrollProps.scrollSize - this.sectionProperties.scrollBarThickness > position[1];
+			pointerIsSyncWithScrollBar = pointerIsSyncWithScrollBar || (this.isMouseInsideDocumentAnchor(position) && spacer === 0);
+		}
+		else {
+			// See if the scroll bar is on top or bottom.
+			var docAncSectionY = this.containerObject.getDocumentAnchorSection().myTopLeft[1];
+			if (scrollProps.startY < 30 * window.app.roundedDpiScale + docAncSectionY) {
+				pointerIsSyncWithScrollBar = scrollProps.startY + spacer < position[1];
+			}
+			else {
+				pointerIsSyncWithScrollBar = scrollProps.startY + spacer > position[1];
+			}
+		}
+
+		this.sectionProperties.pointerSyncWithVerticalScrollBar = pointerIsSyncWithScrollBar;
+		return pointerIsSyncWithScrollBar;
+	}
+
+	private isMousePointerSycnWithHorizontalScrollBar (scrollProps: any, position: Array<number>): boolean {
+		// Keep this desktop-only for now.
+		if (!(<any>window).mode.isDesktop())
+			return true;
+
+		var spacer = 0;
+		if (!this.sectionProperties.pointerSyncWithHorizontalScrollBar) {
+			spacer = this.sectionProperties.pointerReCaptureSpacer;
+		}
+
+		const sizeX = scrollProps.scrollSize - this.sectionProperties.scrollBarThickness;
+		const docWidth: number = this.map.getPixelBoundsCore().getSize().x;
+		const startX = this.isCalcRTL() ? docWidth - scrollProps.startX - sizeX : scrollProps.startX;
+		const endX = startX + sizeX;
+
+		var pointerIsSyncWithScrollBar = false;
+		if (this.sectionProperties.pointerSyncWithHorizontalScrollBar) {
+			pointerIsSyncWithScrollBar = position[0] > startX && position[0] < endX;
+			pointerIsSyncWithScrollBar = pointerIsSyncWithScrollBar || (this.isMouseInsideDocumentAnchor(position) && spacer === 0);
+		}
+		else {
+			// See if the scroll bar is on left or right.
+			var docAncSectionX = this.containerObject.getDocumentAnchorSection().myTopLeft[0];
+			if (startX < 30 * window.app.roundedDpiScale + docAncSectionX) {
+				pointerIsSyncWithScrollBar = startX + spacer < position[0];
+			}
+			else {
+				pointerIsSyncWithScrollBar = startX + spacer > position[0];
+			}
+		}
+
+		this.sectionProperties.pointerSyncWithHorizontalScrollBar = pointerIsSyncWithScrollBar;
+		return pointerIsSyncWithScrollBar;
+	}
+
 	public onMouseMove (position: Array<number>, dragDistance: Array<number>, e: MouseEvent) {
 		if (this.sectionProperties.clickScrollVertical && this.containerObject.draggingSomething) {
 			if (!this.sectionProperties.previousDragDistance) {
@@ -637,11 +732,15 @@ class ScrollSection {
 			this.showVerticalScrollBar();
 
 			var scrollProps: any = this.getVerticalScrollProperties();
+
 			var diffY: number = dragDistance[1] - this.sectionProperties.previousDragDistance[1];
 			var actualDistance = scrollProps.ratio * diffY;
 
-			this.scrollVerticalWithOffset(actualDistance);
+			if (this.isMousePointerSycnWithVerticalScrollBar(scrollProps, position))
+				this.scrollVerticalWithOffset(actualDistance);
+
 			this.sectionProperties.previousDragDistance[1] = dragDistance[1];
+
 			e.stopPropagation(); // Don't propagate to map.
 			this.stopPropagating(); // Don't propagate to bound sections.
 		}
@@ -652,12 +751,14 @@ class ScrollSection {
 
 			this.showHorizontalScrollBar();
 
+			var signX = this.isCalcRTL() ? -1 : 1;
 			var scrollProps: any = this.getHorizontalScrollProperties();
-			var diffX: number = dragDistance[0] - this.sectionProperties.previousDragDistance[0];
-			var percentage: number = diffX / scrollProps.scrollLength;
-			var actualDistance = app.view.size.pixels[0] * percentage;
+			var diffX: number = signX * (dragDistance[0] - this.sectionProperties.previousDragDistance[0]);
+			var actualDistance = scrollProps.ratio * diffX;
 
-			this.scrollHorizontalWithOffset(actualDistance);
+			if (this.isMousePointerSycnWithHorizontalScrollBar(scrollProps, position))
+				this.scrollHorizontalWithOffset(actualDistance);
+
 			this.sectionProperties.previousDragDistance[0] = dragDistance[0];
 			e.stopPropagation(); // Don't propagate to map.
 			this.stopPropagating(); // Don't propagate to bound sections.
@@ -692,21 +793,38 @@ class ScrollSection {
 			return;
 
 		var props = this.getHorizontalScrollProperties();
-		var midX = (props.startX + props.startX + props.scrollSize - this.sectionProperties.scrollBarThickness) * 0.5;
+		const sizeX = props.scrollSize - this.sectionProperties.scrollBarThickness;
+		const docWidth: number = this.map.getPixelBoundsCore().getSize().x;
+		const startX = this.isCalcRTL() ? docWidth - props.startX - sizeX : props.startX;
+		var midX = startX + sizeX * 0.5;
 		var offset = Math.round((point[0] - midX) * props.ratio);
 		this.scrollHorizontalWithOffset(offset);
+	}
+
+	private getLocalYOnVerticalScrollBar (point: Array<number>): number {
+		var props = this.getVerticalScrollProperties();
+		return point[1] - props.startY;
+	}
+
+	private getLocalXOnHorizontalScrollBar (point: Array<number>): number {
+		var props = this.getHorizontalScrollProperties();
+		return point[0] - props.startX;
 	}
 
 	public onMouseDown (point: Array<number>, e: MouseEvent) {
 		this.onMouseMove(point, null, e);
 		this.isMouseOnScrollBar(point);
 
+		const mirrorX = this.isCalcRTL();
+
 		if (this.documentTopLeft[1] >= 0) {
-			if (point[0] >= this.size[0] - this.sectionProperties.usableThickness) {
+			if ((!mirrorX && point[0] >= this.size[0] - this.sectionProperties.usableThickness)
+				|| (mirrorX && point[0] <= this.sectionProperties.usableThickness)) {
 				if (point[1] > this.sectionProperties.yOffset) {
 					this.sectionProperties.clickScrollVertical = true;
 					this.map.scrollingIsHandled = true;
 					this.quickScrollVertical(point);
+					this.sectionProperties.pointerReCaptureSpacer = this.getLocalYOnVerticalScrollBar(point);
 					e.stopPropagation(); // Don't propagate to map.
 					this.stopPropagating(); // Don't propagate to bound sections.
 				}
@@ -721,10 +839,12 @@ class ScrollSection {
 
 		if (this.documentTopLeft[0] >= 0) {
 			if (point[1] >= this.size[1] - this.sectionProperties.usableThickness) {
-				if (point[0] >= this.sectionProperties.xOffset && point[0] <= this.size[0] - this.sectionProperties.horizontalScrollRightOffset) {
+				if ((!mirrorX && point[0] >= this.sectionProperties.xOffset && point[0] <= this.size[0] - this.sectionProperties.horizontalScrollRightOffset)
+					|| (mirrorX && point[0] >= this.sectionProperties.xOffset && point[0] >= this.sectionProperties.horizontalScrollRightOffset)) {
 					this.sectionProperties.clickScrollHorizontal = true;
 					this.map.scrollingIsHandled = true;
 					this.quickScrollHorizontal(point);
+					this.sectionProperties.pointerReCaptureSpacer = this.getLocalXOnHorizontalScrollBar(point);
 					e.stopPropagation(); // Don't propagate to map.
 					this.stopPropagating(); // Don't propagate to bound sections.
 				}
@@ -744,11 +864,13 @@ class ScrollSection {
 			e.stopPropagation(); // Don't propagate to map.
 			this.stopPropagating(); // Don't propagate to bound sections.
 			this.sectionProperties.clickScrollVertical = false;
+			this.sectionProperties.pointerSyncWithVerticalScrollBar = true; // Default.
 		}
 		else if (this.sectionProperties.clickScrollHorizontal) {
 			e.stopPropagation(); // Don't propagate to map.
 			this.stopPropagating(); // Don't propagate to bound sections.
 			this.sectionProperties.clickScrollHorizontal = false;
+			this.sectionProperties.pointerSyncWithHorizontalScrollBar = true; // Default.
 		}
 
 		// Unfortunately, dragging outside the map doesn't work for the map element.

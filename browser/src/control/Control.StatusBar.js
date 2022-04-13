@@ -168,10 +168,10 @@ L.Control.StatusBar = L.Control.extend({
 				name: 'actionbar',
 				items: [
 					{type: 'html',  id: 'search',
-						html: '<div style="padding: 3px 5px 4px 10px;" class="cool-font">' +
+						html: '<div class="cool-font">' +
 					'<label for="search-input" class="visuallyhidden" aria-hidden="false">Search:</label>' +
 					'<input size="15" id="search-input" placeholder="' + _('Search') + '"' +
-					'style="padding: 3px; border-radius: 2px; border: 1px solid silver"/>' +
+					'style="padding: 3px; border-radius: var(--border-radius); border: 1px solid var(--color-border)"/>' +
 					'</div>'
 					},
 					{type: 'button',  id: 'searchprev', img: 'prev', hint: _UNO('.uno:UpSearch'), disabled: true},
@@ -360,6 +360,7 @@ L.Control.StatusBar = L.Control.extend({
 			break;
 
 		case 'presentation':
+		case 'drawing':
 			if (!window.mode.isMobile()) {
 				statusbar.insert('left', [
 					{type: 'break', id: 'break1'},
@@ -378,11 +379,6 @@ L.Control.StatusBar = L.Control.extend({
 					}
 				]);
 			}
-
-		// FALLTHROUGH intended
-		case 'drawing':
-			if (statusbar)
-				statusbar.show('prev', 'next');
 			break;
 		}
 
@@ -390,12 +386,15 @@ L.Control.StatusBar = L.Control.extend({
 
 		this._updateToolbarsVisibility();
 
+		if (isReadOnly)
+			statusbar.disable('LanguageStatus');
+
 		if (statusbar)
 			statusbar.refresh();
 
 		var showStatusbar = this.map.uiManager.getSavedStateOrDefault('ShowStatusbar');
 		if (showStatusbar)
-			$('#toolbar-down').show();
+			this.map.uiManager.toggleStatusBar();
 		else
 			this.map.uiManager.hideStatusBar(true);
 	},

@@ -4,20 +4,21 @@ var helper = require('../../common/helper');
 var { insertMultipleComment, hideSidebar, selectZoomLevel } = require('../../common/desktop_helper');
 
 describe('Annotation Tests', function() {
-	var testFileName = 'annotation.odt';
+	var origTestFileName = 'annotation.odt';
+	var testFileName;
 
 	beforeEach(function() {
 		cy.viewport(1400, 600);
-		helper.beforeAll(testFileName, 'writer');
+		testFileName = helper.beforeAll(origTestFileName, 'writer');
 		var mode = Cypress.env('USER_INTERFACE');
 		if (mode === 'notebookbar') {
-			cy.get('#Sidebar')
+			cy.get('.unospan-optionstoolboxdown.unoSidebar')
 				.should('have.class', 'selected');
 
-			cy.get('#Sidebar')
+			cy.get('.unospan-optionstoolboxdown.unoSidebar')
 				.click();
 
-			cy.get('#Sidebar')
+			cy.get('.unospan-optionstoolboxdown.unoSidebar')
 				.should('not.have.class', 'selected');
 		} else {
 			hideSidebar();

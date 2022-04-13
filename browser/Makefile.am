@@ -54,8 +54,10 @@ endif
 COOL_HTML_SRC = $(shell find $(srcdir)/html -name '*.html')
 COOL_HTML_DST = $(patsubst $(srcdir)/html/%.html,$(DIST_FOLDER)/%.html,$(COOL_HTML_SRC))
 
-COOL_WELCOME_SRC = $(shell find $(srcdir)/welcome -name '*.html')
-COOL_WELCOME_DST = $(patsubst $(srcdir)/welcome/%.html,$(DIST_FOLDER)/welcome/%.html,$(COOL_WELCOME_SRC))
+if ENABLE_WELCOME_MESSAGE
+COOL_WELCOME_SRC = $(shell find $(srcdir)/welcome -name '*')
+COOL_WELCOME_DST = $(patsubst $(srcdir)/welcome/%,$(DIST_FOLDER)/welcome/%,$(COOL_WELCOME_SRC))
+endif
 
 COOL_ADMIN_SRC = $(shell find $(srcdir)/admin -name '*.html' -or -name '*.css' -or -name '*.ttf' -or -name 'OFL.txt' -or -name '*.svg')
 COOL_ADMIN_ALL = $(shell find $(srcdir)/admin -name '*')
@@ -111,7 +113,7 @@ NODE_MODULES_SRC =\
 	select2@4.0.13 \
 	vex-js@4.1.0 \
 	l10n-for-node@0.0.1 \
-	@braintree/sanitize-url@4.0.1
+	@braintree/sanitize-url@6.0.0
 
 COOL_CSS_LST =\
 	$(builddir)/node_modules/select2/dist/css/select2.css \
@@ -130,12 +132,14 @@ COOL_CSS_LST =\
 	$(srcdir)/css/spreadsheet.css \
 	$(srcdir)/css/writer-mobile.css \
 	$(srcdir)/css/editor.css \
+	$(srcdir)/css/iframedialog.css \
 	$(builddir)/node_modules/jquery-contextmenu/dist/jquery.contextMenu.css \
 	$(builddir)/node_modules/vex-js/dist/css/vex.css \
 	$(builddir)/node_modules/vex-js/dist/css/vex-theme-plain.css \
 	$(builddir)/node_modules/vex-js/dist/css/vex-theme-bottom-right-corner.css \
 	$(builddir)/node_modules/smartmenus/dist/css/sm-core-css.css \
 	$(builddir)/node_modules/smartmenus/dist/css/sm-simple/sm-simple.css \
+	$(srcdir)/css/welcome.css \
 	$(srcdir)/css/menubar.css \
 	$(srcdir)/css/mobilewizard.css \
 	$(srcdir)/css/jsdialogs.css \
@@ -143,11 +147,9 @@ COOL_CSS_LST =\
 	$(srcdir)/css/notebookbar.css \
 	$(srcdir)/css/jssidebar.css \
 	$(srcdir)/css/override-vex.css \
-	$(srcdir)/css/jquery-ui-lightness.css
-
-if ENABLE_FEEDBACK
-COOL_CSS_LST += $(srcdir)/css/iframedialog.css
-endif
+	$(srcdir)/css/override-smartmenus.css \
+	$(srcdir)/css/jquery-ui-lightness.css \
+	$(srcdir)/css/infobar.css
 
 COOL_CSS = $(filter %,$(COOL_CSS_LST))
 
@@ -194,6 +196,7 @@ COOL_JS_LST =\
 	src/Leaflet.js \
 	src/errormessages.js \
 	src/unocommands.js \
+	src/UNO/Key.js \
 	src/core/Log.js \
 	src/core/Util.js \
 	src/core/LOUtil.js \
@@ -203,12 +206,13 @@ COOL_JS_LST =\
 	src/core/Matrix.js \
 	src/geometry/Point.ts \
 	src/geometry/Bounds.ts \
-	src/geometry/Transformation.js \
+	src/geometry/Transformation.ts \
 	src/dom/DomUtil.js src/geo/LatLng.js \
 	src/geo/LatLngBounds.js \
 	src/geo/projection/Projection.LonLat.js \
 	src/geo/crs/CRS.js \
 	src/geo/crs/CRS.Simple.js \
+	src/control/IFrameDialog.js \
 	src/map/Map.js \
 	src/map/Clipboard.js \
 	src/layer/Layer.js \
@@ -233,9 +237,11 @@ COOL_JS_LST =\
 	src/layer/tile/ScrollSection.ts \
 	src/layer/tile/CanvasTileLayer.js \
 	src/layer/SplitPanesContext.ts \
+	src/layer/vector/CDarkOverlay.ts \
+	src/layer/SplitPanesContext.ts \
 	src/layer/CalcSplitPanesContext.ts \
+	src/layer/vector/CDarkOverlay.ts \
 	src/layer/tile/TileLayer.TableOverlay.js \
-	src/layer/ObjectFocusDarkOverlay.js \
 	src/layer/tile/WriterTileLayer.js \
 	src/layer/tile/ImpressTileLayer.js \
 	src/layer/tile/CalcTileLayer.js \
@@ -286,6 +292,9 @@ COOL_JS_LST =\
 	src/map/handler/Map.TouchGesture.js \
 	src/map/handler/Map.BoxZoom.js \
 	src/map/handler/Map.Keyboard.js \
+	src/map/handler/Map.Welcome.js \
+	src/map/handler/Map.Feedback.js \
+	src/map/handler/Map.Infobar.js \
 	src/dom/DomEvent.MultiClick.js \
 	src/map/handler/Map.Mouse.js \
 	src/map/handler/Map.Print.js \
@@ -315,7 +324,8 @@ COOL_JS_LST =\
 	src/control/Control.Selection.js \
 	src/control/Control.LokDialog.js \
 	src/control/Control.AlertDialog.js \
-	src/control/Control.Infobar.js src/control/ColorPicker.js \
+	src/control/Control.Infobar.js \
+	src/control/ColorPicker.js \
 	src/control/Control.JSDialog.js \
 	src/control/Control.JSDialogBuilder.js \
 	src/control/Control.MobileWizardBuilder.js \
@@ -358,15 +368,7 @@ COOL_JS_LST =\
 	src/map/anim/Map.PanAnimation.js \
 	src/dom/PosAnimation.Timer.js \
 	src/control/Control.Scroll.Annotation.js \
-	src/layer/marker/DivOverlay.js
-
-if ENABLE_FEEDBACK
-COOL_JS_LST +=\
-	src/control/IFrameDialog.js \
-	src/map/handler/Map.Feedback.js
-endif
-
-COOL_JS_LST +=\
+	src/layer/marker/DivOverlay.js \
 	src/main.js
 
 COOL_JS_WEBORDER = $(filter %,$(COOL_JS_LST))
@@ -526,7 +528,6 @@ $(DIST_FOLDER)/cool.html: $(srcdir)/html/cool.html.m4 \
 	$(DIST_FOLDER)/bundle.js
 	@echo "Generating cool.html..."
 	m4 -PE -DBUNDLE=$(IS_BUNDLE) \
-		-DENABLE_FEEDBACK=$(ENABLE_FEEDBACK) \
 		-DIOSAPP=$(ENABLE_IOSAPP) \
 		-DGTKAPP=$(ENABLE_GTKAPP) \
 		-DANDROIDAPP=$(ENABLE_ANDROIDAPP) \
@@ -575,16 +576,22 @@ $(DIST_FOLDER)/%.html: $(srcdir)/html/%.html
 		`ln -sf $(abs_srcdir)/$< $@`; \
 	fi
 
-$(DIST_FOLDER)/welcome/%.html: $(srcdir)/welcome/%.html
+if ENABLE_WELCOME_MESSAGE
+$(DIST_FOLDER)/welcome/%: $(srcdir)/welcome/%
 	@mkdir -p $(dir $@)
 	@if test -z '$(ENABLE_BROWSERSYNC)'; then \
 		`cp $< $@`; \
 	else \
 		`ln -sf $(abs_srcdir)/$< $@`; \
 	fi
+endif
+
+if ENABLE_DEBUG
+SourceMap=--allowJs true --sourceMap true --inlineSources true
+endif
 
 tscompile.done: $(COOL_JS_SRC) $(COOL_TS_SRC)
-	$(builddir)/node_modules/typescript/bin/tsc --typeRoots $(builddir)/node_modules/@types --outDir $(DIST_FOLDER)/src --rootDir $(srcdir)/src --checkJs false --project $(srcdir)/tsconfig.json
+	$(builddir)/node_modules/typescript/bin/tsc --typeRoots $(builddir)/node_modules/@types --outDir $(DIST_FOLDER)/src --rootDir $(srcdir)/src --checkJs false --project $(srcdir)/tsconfig.json $(SourceMap)
 	@touch $@
 
 $(COOL_TS_JS_DST): tscompile.done
@@ -640,7 +647,7 @@ $(DIST_FOLDER)/admin/%: $(srcdir)/admin/%
 
 install-data-hook:
 	mkdir -p $(DESTDIR)$(pkgdatadir)/browser; \
-	cp -ar dist/ $(DESTDIR)$(pkgdatadir)/browser/;
+	cp -a dist/ $(DESTDIR)$(pkgdatadir)/browser/;
 
 libs:
 	@mkdir -p $(abs_srcdir)/libs
@@ -655,10 +662,12 @@ pot:
 		admin/src/AdminSocketOverview.js \
 		admin/src/AdminSocketSettings.js \
 		admin/src/Util.js \
+		js/w2ui-1.5.rc1.js \
 		src/control/ColorPicker.js \
 		src/control/Control.AlertDialog.js \
 		src/control/Control.Command.js \
 		src/control/Control.ContextMenu.js \
+		src/control/Control.DocumentNameInput.js \
 		src/control/Control.DocumentRepair.js \
 		src/control/Control.DownloadProgress.js \
 		src/control/Control.FormulaBar.js \
@@ -702,6 +711,10 @@ pot:
 		src/map/handler/Map.WOPI.js
 
 	html2po --pot --input=html/cool-help.html --output=po/templates/cool-help.pot --duplicates=merge
+	html2po --pot --input=welcome/welcome.html --output=po/templates/welcome.pot --duplicates=merge
+	$(srcdir)/util/appendwelcome.py po/templates/welcome.pot po/templates/cool-ui.pot
+	rm po/templates/welcome.pot
+	msguniq -w 78 -t UTF-8 po/templates/cool-ui.pot > po/templates/cool-ui.pot.new; mv po/templates/cool-ui.pot.new po/templates/cool-ui.pot
 
 l10n: pot
 	for i in po/ui-*.po; do pot2po --input=po/templates/cool-ui.pot --template=$$i --output=$$i.new; mv $$i.new $$i;done
@@ -736,9 +749,16 @@ jsconfig: $(abs_srcdir)/jsconfig.json $(abs_srcdir)/admin/jsconfig.json
 build-tests: $(MOCHA_TS_JS_FILES)
 	@echo "Build of mocha test finished."
 
+MOCHA_TEST_LOG = "`pwd`/mocha.log"
 check-local: $(MOCHA_TS_JS_FILES)
 	@echo "Running mocha tests..."
-	@$(NODE) node_modules/mocha/bin/mocha "$(srcdir)/mocha_tests/**/*.js"
+	@echo > ${MOCHA_TEST_LOG}
+	@if $(NODE) node_modules/mocha/bin/mocha "$(srcdir)/mocha_tests/**/*.js" 2> ${MOCHA_TEST_LOG} 1>&2; then \
+		echo "Mocha tests finished successfully. Results in ${MOCHA_TEST_LOG}"; \
+	else \
+		cat ${MOCHA_TEST_LOG}; \
+		exit 1; \
+	fi
 
 SSL_FLAG = `xmllint --xpath 'string(/config/ssl/enable)' $(abs_top_builddir)/coolwsd.xml`
 
@@ -752,7 +772,7 @@ single_view="false"
 node_inspect="false"
 # Record tile stats and dump it into the file "test/tilestats.txt"
 # Pipe it with | grep "tilestats"
-record_stats="false"
+record_stats="true"
 perf-test:
 	@echo "Running perf tests..."
 	@mkdir -p $(abs_top_builddir)/test/data

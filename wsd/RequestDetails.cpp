@@ -10,6 +10,7 @@
 #include "COOLWSD.hpp"
 #include "RequestDetails.hpp"
 #include "common/Log.hpp"
+#include "HostUtil.hpp"
 
 #include <Poco/URI.h>
 #include "Exceptions.hpp"
@@ -223,7 +224,7 @@ void RequestDetails::processURI()
     if (posLastWS != std::string::npos)
     {
         std::string lastWS = uriRes.substr(posLastWS);
-        const auto proxyTokens = Util::tokenize(lastWS, '/');
+        const auto proxyTokens = StringVector::tokenize(lastWS, '/');
         if (proxyTokens.size() > 1)
         {
             _fields[Field::SessionId] = proxyTokens[1];
@@ -281,19 +282,21 @@ Poco::URI RequestDetails::sanitizeURI(const std::string& uri)
     return uriPublic;
 }
 
+#if !defined(BUILDING_TESTS)
 std::string RequestDetails::getDocKey(const Poco::URI& uri)
 {
-    // If multiple host-names are used to access us, then
-    // they must be aliases. Permission to access aliased hosts
-    // is checked at the point of accepting incoming connections.
-    // At this point storing the hostname artificially discriminates
-    // between aliases and forces same document (when opened from
-    // alias hosts) to load as separate documents and sharing doesn't
-    // work. Worse, saving overwrites one another.
     std::string docKey;
-    Poco::URI::encode(uri.getPath(), "", docKey);
+    std::string newUri = uri.getPath();
+
+    // resolve aliases
+#if !MOBILEAPP
+    newUri = HostUtil::getNewUri(uri);
+#endif
+
+    Poco::URI::encode(newUri, "", docKey);
     LOG_INF("DocKey from URI [" << uri.toString() << "] => [" << docKey << ']');
     return docKey;
 }
+#endif // !defined(BUILDING_TESTS)
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

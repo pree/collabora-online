@@ -68,12 +68,17 @@ void ChildProcess::setDocumentBroker(const std::shared_ptr<DocumentBroker>& docB
 
     // Add the prisoner socket to the docBroker poll.
     docBroker->addSocketToPoll(getSocket());
+
+    if (UnitWSD::isUnitTesting())
+    {
+        UnitWSD::get().onDocBrokerAttachKitProcess(docBroker->getDocKey(), getPid());
+    }
 }
 
 void DocumentBroker::broadcastLastModificationTime(
     const std::shared_ptr<ClientSession>& session) const
 {
-    if (_storageManager.getLastModifiedTime() == std::chrono::system_clock::time_point())
+    if (_storageManager.getLastModifiedTime().empty())
         // No time from the storage (e.g., SharePoint 2013 and 2016) -> don't send
         return;
 
@@ -122,6 +127,7 @@ DocumentBroker::DocumentBroker(ChildType type,
     _docKey(docKey),
     _docId(Util::encodeId(DocBrokerId++, 3)),
     _documentChangedInStorage(false),
+    _isViewFileExtension(false),
     _isModified(false),
     _cursorPosX(0),
     _cursorPosY(0),
@@ -131,7 +137,6 @@ DocumentBroker::DocumentBroker(ChildType type,
     _stop(false),
     _closeReason("stopped"),
     _lockCtx(new LockContext()),
-    _lastEditingSessionId(),
     _tileVersion(0),
     _debugRenderedTileCount(0),
     _wopiDownloadDuration(0),
@@ -146,6 +151,11 @@ DocumentBroker::DocumentBroker(ChildType type,
 
     LOG_INF("DocumentBroker [" << COOLWSD::anonymizeUrl(_uriPublic.toString()) <<
             "] created with docKey [" << _docKey << ']');
+
+    if (UnitWSD::isUnitTesting())
+    {
+        UnitWSD::get().onDocBrokerCreate(_docKey);
+    }
 }
 
 void DocumentBroker::setupPriorities()
@@ -253,10 +263,16 @@ void DocumentBroker::pollThread()
     auto loadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(limit_load_secs);
 #endif
 
+    const auto limStoreFailures =
+        COOLWSD::getConfigValue<int>("per_document.limit_store_failures", 5);
+
     // Main polling loop goodness.
     while (!_stop && _poll->continuePolling() && !SigUtil::getTerminationFlag())
     {
-        _poll->poll(SocketPoll::DefaultPollTimeoutMicroS);
+        // Poll more frequently while unloading to cleanup sooner.
+        const bool unloading = isMarkedToDestroy() || _docState.isUnloadRequested();
+        _poll->poll(unloading ? SocketPoll::DefaultPollTimeoutMicroS / 16
+                              : SocketPoll::DefaultPollTimeoutMicroS);
 
 #if !MOBILEAPP
         const auto now = std::chrono::steady_clock::now();
@@ -336,13 +352,6 @@ void DocumentBroker::pollThread()
             refreshLock();
 #endif
 
-        //TODO: Review if we need this here.
-        if (_saveManager.isSaving() && !_saveManager.hasSavingTimedOut())
-        {
-            // We are saving, nothing more to do but wait (until we save or we timeout).
-            continue;
-        }
-
         LOG_TRC("Poll: current activity: " << DocumentState::toString(_docState.activity()));
         switch (_docState.activity())
         {
@@ -355,29 +364,72 @@ void DocumentBroker::pollThread()
                     // Nothing more to do until the save is complete.
                     continue;
                 }
-                else if (SigUtil::getShutdownRequestFlag() || _docState.isCloseRequested())
+
+#if !MOBILEAPP
+                // Remove idle documents after 1 hour.
+                if (isLoaded() && getIdleTimeSecs() >= IdleDocTimeoutSecs)
                 {
-                    const std::string reason =
-                        SigUtil::getShutdownRequestFlag() ? "recycling" : _closeReason;
-                    const bool possiblyModified = isPossiblyModified();
-                    // If we failed the last upload, save even if unmodified so we upload.
-                    const bool dontSaveIfUnmodified = _storageManager.lastUploadSuccessful();
-                    LOG_INF("Autosave before closing DocumentBroker for docKey ["
-                            << getDocKey()
-                            << "], possiblyModified: " << (possiblyModified ? "yes" : "no")
-                            << ", dontSaveIfUnmodified: " << (dontSaveIfUnmodified ? "yes" : "no")
-                            << ", for " << reason);
-                    if (!autoSave(possiblyModified, dontSaveIfUnmodified))
+                    autoSaveAndStop("idle");
+                }
+                else
+#endif
+                if (_sessions.empty() && (isLoaded() || _docState.isMarkedToDestroy()))
+                {
+                    if (!isLoaded())
                     {
-                        LOG_INF("Terminating DocumentBroker for docKey [" << getDocKey()
-                                                                          << "]: " << reason);
-                        stop(reason);
+                        // Nothing to do; no sessions, not loaded, marked to destroy.
+                        stop("dead");
                     }
+                    else if (_saveManager.isSaving() || isAsyncUploading())
+                    {
+                        LOG_DBG("Don't terminate dead DocumentBroker: async saving in progress for "
+                                "docKey ["
+                                << getDocKey() << "].");
+                        continue;
+                    }
+
+                    autoSaveAndStop("dead");
+                }
+                else if (_docState.isUnloadRequested() || SigUtil::getShutdownRequestFlag() ||
+                         _docState.isCloseRequested())
+                {
+                    if (limStoreFailures > 0 && (_saveManager.saveFailureCount() >=
+                                                     static_cast<std::size_t>(limStoreFailures) ||
+                                                 _storageManager.uploadFailureCount() >=
+                                                     static_cast<std::size_t>(limStoreFailures)))
+                    {
+                        LOG_ERR("Failed to store the document and reached maximum retry count of "
+                                << limStoreFailures
+                                << ". Giving up. The document should be recoverable from the "
+                                   "quarantine. Save failures: "
+                                << _saveManager.saveFailureCount()
+                                << ", Upload failures: " << _storageManager.uploadFailureCount());
+                        stop("storefailed");
+                        continue;
+                    }
+
+                    const std::string reason =
+                        SigUtil::getShutdownRequestFlag()
+                            ? "recycling"
+                            : (!_closeReason.empty() ? _closeReason : "unloading");
+                    autoSaveAndStop(reason);
                 }
                 else if (!_stop && _saveManager.needAutosaveCheck())
                 {
                     LOG_TRC("Triggering an autosave.");
                     autoSave(false);
+                }
+            }
+            break;
+
+            case DocumentState::Activity::Save:
+            case DocumentState::Activity::SaveAs:
+            {
+                if (_docState.isDisconnected())
+                {
+                    // We will never save. No need to wait for timeout.
+                    _saveManager.setLastSaveResult(false);
+                    endActivity();
                 }
             }
             break;
@@ -415,58 +467,38 @@ void DocumentBroker::pollThread()
 
             lastClipboardHashUpdateTime = now;
         }
-
-        // Remove idle documents after 1 hour.
-        if (isLoaded() && getIdleTimeSecs() >= IdleDocTimeoutSecs)
-        {
-            // Don't hammer on saving.
-            if (_saveManager.timeSinceLastSaveRequest() >= std::chrono::seconds(5))
-            {
-                // Stop if there is nothing to save.
-                LOG_INF("Autosaving idle DocumentBroker for docKey [" << getDocKey()
-                                                                      << "] to kill.");
-                if (!autoSave(isPossiblyModified()))
-                {
-                    LOG_INF("Terminating idle DocumentBroker for docKey [" << getDocKey() << "].");
-                    stop("idle");
-                }
-            }
-        }
-        else
 #endif
-        if (_sessions.empty() && (isLoaded() || _docState.isMarkedToDestroy()))
-        {
-            if (_saveManager.isSaving() || isAsyncSaveInProgress())
-            {
-                LOG_DBG("Don't terminate dead DocumentBroker: async saving in progress for docKey [" << getDocKey() << "].");
-                continue;
-            }
-
-            // If all sessions have been removed, no reason to linger.
-            LOG_INF("Terminating dead DocumentBroker for docKey [" << getDocKey() << "].");
-            stop("dead");
-        }
     }
 
     LOG_INF("Finished polling doc [" << _docKey << "]. stop: " << _stop << ", continuePolling: " <<
             _poll->continuePolling() << ", ShutdownRequestFlag: " << SigUtil::getShutdownRequestFlag() <<
             ", TerminationFlag: " << SigUtil::getTerminationFlag() << ", closeReason: " << _closeReason << ". Flushing socket.");
 
-    if (isModified())
+    // If the document is modified at exit, dump the state and warn.
+    // Unless, that is, the user discarded the changes.
+    if (isModified() && !(_docState.isCloseRequested() && _documentChangedInStorage))
     {
         std::stringstream state;
         dumpState(state);
         LOG_WRN("DocumentBroker stopping although flagged as modified " << state.str());
+        if (UnitWSD::isUnitTesting())
+            UnitWSD::get().fail("Unsaved data detected while exiting DocBroker [" + _docKey + ']');
+    }
+    else if (UnitWSD::isUnitTesting() && UnitWSD::get().isFinished() && UnitWSD::get().failed())
+    {
+        std::stringstream state;
+        dumpState(state);
+        LOG_WRN("Test failed with doc [" << _docKey << "]: " << state.str());
     }
 
     // Flush socket data first.
     constexpr auto flushTimeoutMicroS = std::chrono::microseconds(POLL_TIMEOUT_MICRO_S * 2); // ~1000ms
-    LOG_INF("Flushing socket for doc ["
-            << _docKey << "] for " << flushTimeoutMicroS << ". stop: " << _stop
-            << ", continuePolling: " << _poll->continuePolling()
-            << ", ShutdownRequestFlag: " << SigUtil::getShutdownRequestFlag()
-            << ", TerminationFlag: " << SigUtil::getTerminationFlag()
-            << ". Terminating child with reason: [" << _closeReason << "].");
+    LOG_INF("Flushing socket " << _poll->getSocketCount() << " for doc [" << _docKey << "] for "
+                               << flushTimeoutMicroS << ". stop: " << _stop
+                               << ", continuePolling: " << _poll->continuePolling()
+                               << ", ShutdownRequestFlag: " << SigUtil::getShutdownRequestFlag()
+                               << ", TerminationFlag: " << SigUtil::getTerminationFlag()
+                               << ". Terminating child with reason: [" << _closeReason << "].");
     const auto flushStartTime = std::chrono::steady_clock::now();
     while (_poll->getSocketCount())
     {
@@ -517,10 +549,6 @@ DocumentBroker::~DocumentBroker()
 {
     assertCorrectThread();
 
-#if !MOBILEAPP
-    Admin::instance().rmDoc(_docKey);
-#endif
-
     LOG_INF("~DocumentBroker [" << _docKey <<
             "] destroyed with " << _sessions.size() << " sessions left.");
 
@@ -528,11 +556,21 @@ DocumentBroker::~DocumentBroker()
     _poll->joinThread();
 
     if (!_sessions.empty())
-        LOG_WRN("DocumentBroker [" << _docKey << "] still has unremoved sessions.");
+        LOG_WRN("Destroying DocumentBroker [" << _docKey << "] while having unremoved sessions.");
 
     // Need to first make sure the child exited, socket closed,
     // and thread finished before we are destroyed.
     _childProcess.reset();
+
+#if !MOBILEAPP
+    // Remove from the admin last, to avoid racing the next test.
+    Admin::instance().rmDoc(_docKey);
+#endif
+
+    if (UnitWSD::isUnitTesting())
+    {
+        UnitWSD::get().onDocBrokerDestroy(_docKey);
+    }
 }
 
 void DocumentBroker::joinThread()
@@ -542,8 +580,18 @@ void DocumentBroker::joinThread()
 
 void DocumentBroker::stop(const std::string& reason)
 {
-    LOG_DBG("Stopping DocumentBroker for docKey [" << _docKey << "] with reason: " << reason);
-    _closeReason = reason; // used later in the polling loop
+    if (_closeReason.empty() || _closeReason == reason)
+    {
+        LOG_DBG("Stopping DocumentBroker for docKey [" << _docKey << "] with reason: " << reason);
+        _closeReason = reason; // used later in the polling loop
+    }
+    else
+    {
+        LOG_DBG("Stopping DocumentBroker for docKey ["
+                << _docKey << "] with existing close reason: " << _closeReason
+                << " (ignoring requested reason: " << reason << ')');
+    }
+
     _stop = true;
     _poll->wakeup();
 }
@@ -611,7 +659,7 @@ bool DocumentBroker::download(const std::shared_ptr<ClientSession>& session, con
         firstInstance = true;
     }
 
-    assert(_storage != nullptr);
+    LOG_ASSERT(_storage);
 
     // Call the storage specific fileinfo functions
     std::string userId, username;
@@ -637,8 +685,9 @@ bool DocumentBroker::download(const std::shared_ptr<ClientSession>& session, con
         watermarkText = wopifileinfo->getWatermarkText();
         templateSource = wopifileinfo->getTemplateSource();
 
-        if (!wopifileinfo->getUserCanWrite() ||
-            COOLWSD::IsViewFileExtension(wopiStorage->getFileExtension()))
+        _isViewFileExtension = COOLWSD::IsViewFileExtension(wopiStorage->getFileExtension());
+        if (CommandControl::LockManager::isLockedReadOnlyUser() ||
+            !wopifileinfo->getUserCanWrite() || _isViewFileExtension)
         {
             LOG_DBG("Setting the session as readonly");
             session->setReadOnly();
@@ -751,27 +800,29 @@ bool DocumentBroker::download(const std::shared_ptr<ClientSession>& session, con
         }
     }
 
-#ifdef ENABLE_FREEMIUM
-    Object::Ptr freemiumInfo = new Object();
-    freemiumInfo->set("IsFreemiumUser", CommandControl::FreemiumManager::isFreemiumUser());
+#ifdef ENABLE_FEATURE_LOCK
+    Object::Ptr lockInfo = new Object();
+    lockInfo->set("IsLockedUser", CommandControl::LockManager::isLockedUser());
+    lockInfo->set("IsLockReadOnly", CommandControl::LockManager::isLockReadOnly());
 
     // Poco:Dynamic:Var does not support std::unordred_set so converted to std::vector
-    std::vector<std::string> freemiumDenyList(CommandControl::FreemiumManager::getFreemiumDenyList().begin(),
-                                                CommandControl::FreemiumManager::getFreemiumDenyList().end());
-    freemiumInfo->set("FreemiumDenyList", freemiumDenyList);
-    freemiumInfo->set("FreemiumPurchaseTitle", CommandControl::FreemiumManager::getFreemiumPurchaseTitle());
-    freemiumInfo->set("FreemiumPurchaseLink", CommandControl::FreemiumManager::getFreemiumPurchaseLink());
-    freemiumInfo->set("FreemiumPurchaseDescription", CommandControl::FreemiumManager::getFreemiumPurchaseDescription());
-    freemiumInfo->set("WriterHighlights", CommandControl::FreemiumManager::getWriterHighlights());
-    freemiumInfo->set("CalcHighlights", CommandControl::FreemiumManager::getCalcHighlights());
-    freemiumInfo->set("ImpressHighlights", CommandControl::FreemiumManager::getImpressHighlights());
-    freemiumInfo->set("DrawHighlights", CommandControl::FreemiumManager::getDrawHighlights());
+    std::vector<std::string> lockedCommandList(
+        CommandControl::LockManager::getLockedCommandList().begin(),
+        CommandControl::LockManager::getLockedCommandList().end());
+    lockInfo->set("LockedCommandList", lockedCommandList);
+    lockInfo->set("UnlockTitle", CommandControl::LockManager::getUnlockTitle());
+    lockInfo->set("UnlockLink", CommandControl::LockManager::getUnlockLink());
+    lockInfo->set("UnlockDescription", CommandControl::LockManager::getUnlockDescription());
+    lockInfo->set("WriterHighlights", CommandControl::LockManager::getWriterHighlights());
+    lockInfo->set("CalcHighlights", CommandControl::LockManager::getCalcHighlights());
+    lockInfo->set("ImpressHighlights", CommandControl::LockManager::getImpressHighlights());
+    lockInfo->set("DrawHighlights", CommandControl::LockManager::getDrawHighlights());
 
-    std::ostringstream ossFreemiumInfo;
-    freemiumInfo->stringify(ossFreemiumInfo);
-    const std::string freemiumInfoString = ossFreemiumInfo.str();
-    LOG_TRC("Sending freemium info to client: " << freemiumInfoString);
-    session->sendMessage("freemium: " + freemiumInfoString);
+    std::ostringstream ossLockInfo;
+    lockInfo->stringify(ossLockInfo);
+    const std::string lockInfoString = ossLockInfo.str();
+    LOG_TRC("Sending feature locking info to client: " << lockInfoString);
+    session->sendMessage("featurelock: " + lockInfoString);
 #endif
 
 #ifdef ENABLE_FEATURE_RESTRICTION
@@ -786,7 +837,7 @@ bool DocumentBroker::download(const std::shared_ptr<ClientSession>& session, con
     std::ostringstream ossRestrictionInfo;
     restrictionInfo->stringify(ossRestrictionInfo);
     const std::string restrictionInfoString = ossRestrictionInfo.str();
-    LOG_TRC("Sending freemium info to client: " << restrictionInfoString);
+    LOG_TRC("Sending command restriction info to client: " << restrictionInfoString);
     session->sendMessage("restrictedCommands: " + restrictionInfoString);
 #endif
 
@@ -815,21 +866,21 @@ bool DocumentBroker::download(const std::shared_ptr<ClientSession>& session, con
 
     if (firstInstance)
     {
-        _storageManager.setLastModifiedTime(fileInfo.getModifiedTime());
+        _storageManager.setLastModifiedTime(fileInfo.getLastModifiedTime());
         LOG_DBG("Document timestamp: " << _storageManager.getLastModifiedTime());
     }
     else
     {
         // Check if document has been modified by some external action
-        LOG_TRC("Document modified time: " << fileInfo.getModifiedTime());
-        std::chrono::system_clock::time_point Zero;
-        if (_storageManager.getLastModifiedTime() != Zero && fileInfo.getModifiedTime() != Zero
-            && _storageManager.getLastModifiedTime() != fileInfo.getModifiedTime())
+        LOG_TRC("Document modified time: " << fileInfo.getLastModifiedTime());
+        if (!_storageManager.getLastModifiedTime().empty() &&
+            !fileInfo.getLastModifiedTime().empty() &&
+            _storageManager.getLastModifiedTime() != fileInfo.getLastModifiedTime())
         {
             LOG_DBG("Document " << _docKey << "] has been modified behind our back. "
                                 << "Informing all clients. Expected: "
                                 << _storageManager.getLastModifiedTime()
-                                << ", Actual: " << fileInfo.getModifiedTime());
+                                << ", Actual: " << fileInfo.getLastModifiedTime());
 
             _documentChangedInStorage = true;
             const std::string message = isModified() ? "error: cmd=storage kind=documentconflict"
@@ -849,6 +900,10 @@ bool DocumentBroker::download(const std::shared_ptr<ClientSession>& session, con
         std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
         std::string localPath = _storage->downloadStorageFileToLocal(session->getAuthorization(),
                                                                      *_lockCtx, templateSource);
+        if (localPath.empty())
+        {
+            throw std::runtime_error("Failed to retrieve document from storage");
+        }
 
         getFileCallDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start);
@@ -904,7 +959,7 @@ bool DocumentBroker::download(const std::shared_ptr<ClientSession>& session, con
                         ++outputs;
                     }
 
-                    StringVector args(Util::tokenize(commandLine, ' '));
+                    StringVector args(StringVector::tokenize(commandLine, ' '));
                     std::string command(args[0]);
                     args.erase(args.begin()); // strip the command
 
@@ -950,7 +1005,9 @@ bool DocumentBroker::download(const std::shared_ptr<ClientSession>& session, con
         _uriJailedAnonym = Poco::URI(Poco::URI("file://"), COOLWSD::anonymizeUrl(localPathEncoded)).toString();
 
         _filename = fileInfo.getFilename();
-
+#if !MOBILEAPP
+        Quarantine::quarantineFile(this, _filename);
+#endif
         if (!templateSource.empty())
         {
             // Invalid timestamp for templates, to force uploading once we save-after-loading.
@@ -1071,6 +1128,12 @@ bool DocumentBroker::attemptLock(const ClientSession& session, std::string& fail
 
 DocumentBroker::NeedToUpload DocumentBroker::needToUploadToStorage() const
 {
+    if (_storage == nullptr)
+    {
+        // This can happen when we reject the connection (unauthorized).
+        return NeedToUpload::No;
+    }
+
     // When destroying, we might have to force uploading if always_save_on_exit=true.
     // If unloadRequested is set, assume we will unload after uploading and exit.
     if (isMarkedToDestroy() || _docState.isUnloadRequested())
@@ -1079,29 +1142,64 @@ DocumentBroker::NeedToUpload DocumentBroker::needToUploadToStorage() const
             = COOLWSD::getConfigValue<bool>("per_document.always_save_on_exit", false);
         if (always_save)
         {
-            LOG_INF("Need to upload per always_save_on_exit config (MarkedToDestroy=true).");
+            if (_documentChangedInStorage)
+            {
+                LOG_WRN("Need to upload per always_save_on_exit config, but the document has a "
+                        "conflict. Cannot force uploading.");
+                return NeedToUpload::Yes; // Still try.
+            }
+
+            LOG_INF("Need to upload per always_save_on_exit config "
+                    << (isMarkedToDestroy() ? "MarkedToDestroy" : "Unloading"));
             return NeedToUpload::Force;
         }
     }
 
-    if (!_storageManager.lastUploadSuccessful())
+    // Force uploading only for retryable failures, not conflicts. See FIXME below.
+    if (!_storageManager.lastUploadSuccessful() && !_documentChangedInStorage)
     {
         //FIXME: Forcing is used when overwriting a 'document conflict' and
         // for uploading when otherwise we might not have an immediate
         // reason. We shouldn't use a single flag for both these uses.
+        if (_documentChangedInStorage)
+        {
+            LOG_WRN("Last upload failed due to a conflict. Cannot force uploading.");
+            return NeedToUpload::Yes; // Still try.
+        }
+
         LOG_INF("Enabling forced uploading to storage as last attempt had failed.");
         return NeedToUpload::Force;
     }
 
-    // Get the modified-time of the file on disk.
-    const auto st = FileUtil::Stat(_storage->getRootFilePathUploading());
-    const std::chrono::system_clock::time_point currentModifiedTime = st.modifiedTimepoint();
-
-    // Compare to the last uploaded file's modified-time.
-    if (currentModifiedTime != _storageManager.getLastUploadedFileModifiedTime())
+    // Finally, see if we have a newer version than storage.
+    if (isStorageOutdated())
         return NeedToUpload::Yes; // Timestamp changed, upload.
 
     return NeedToUpload::No; // No reason to upload, seems up-to-date.
+}
+
+bool DocumentBroker::isStorageOutdated() const
+{
+    // Get the modified-time of the file on disk.
+    const auto st = FileUtil::Stat(_storage->getRootFilePathUploading());
+    if (!st.exists())
+    {
+        LOG_TRC("File to upload to storage [" << _storage->getRootFilePathUploading()
+                                              << "] does not exist.");
+        return false;
+    }
+
+    const std::chrono::system_clock::time_point currentModifiedTime = st.modifiedTimepoint();
+    const std::chrono::system_clock::time_point lastModifiedTime =
+        _storageManager.getLastUploadedFileModifiedTime();
+
+    LOG_TRC("File to upload to storage ["
+            << _storage->getRootFilePathUploading() << "] was modified at " << currentModifiedTime
+            << " and the last uploaded file was modified at " << lastModifiedTime << ", which are "
+            << (currentModifiedTime == lastModifiedTime ? "identical." : "different."));
+
+    // Compare to the last uploaded file's modified-time.
+    return currentModifiedTime != lastModifiedTime;
 }
 
 void DocumentBroker::handleSaveResponse(const std::string& sessionId, bool success,
@@ -1123,8 +1221,6 @@ void DocumentBroker::handleSaveResponse(const std::string& sessionId, bool succe
     const std::string oldName = _storage->getRootFilePathToUpload();
     const std::string newName = _storage->getRootFilePathUploading();
 
-    Quarantine::quarantineFile(this, _storage->getFileInfo().getFilename() + TO_UPLOAD_SUFFIX);
-
     if (rename(oldName.c_str(), newName.c_str()) < 0)
     {
         // It's not an error if there was no file to rename, when the document isn't modified.
@@ -1137,10 +1233,35 @@ void DocumentBroker::handleSaveResponse(const std::string& sessionId, bool succe
     {
         LOG_TRC("Renamed [" << oldName << "] to [" << newName << ']');
     }
+
+    Quarantine::quarantineFile(this, Util::splitLast(newName, '/').second);
 #endif //!MOBILEAPP
 
     // Record that we got a response to avoid timing out on saving.
     _saveManager.setLastSaveResult(success || result == "unmodified");
+
+    // The the clients know of any save failures.
+    if (!success && result != "unmodified")
+    {
+        const auto it = _sessions.find(sessionId);
+        if (it != _sessions.end())
+        {
+            LOG_DBG("Failed to save docKey ["
+                    << _docKey << "] as .uno:Save has failed in LOK. Notifying client "
+                    << sessionId);
+            it->second->sendTextFrameAndLogError("error: cmd=storage kind=savefailed");
+            broadcastSaveResult(false, "Could not save the document");
+        }
+    }
+
+    checkAndUploadToStorage(sessionId);
+}
+
+// This is called when either we just got save response, or,
+// there was nothing to save and want to check for uploading.
+void DocumentBroker::checkAndUploadToStorage(const std::string& sessionId)
+{
+    LOG_TRC("checkAndUploadToStorage with session " << sessionId);
 
     // See if we have anything to upload.
     NeedToUpload needToUploadState = needToUploadToStorage();
@@ -1176,11 +1297,20 @@ void DocumentBroker::handleSaveResponse(const std::string& sessionId, bool succe
         default:
         break;
     }
-
+#if !MOBILEAPP
+    // Avoid multiple uploads during unloading if we know we need to save a new version.
+    if (_docState.isUnloadRequested() && isPossiblyModified())
+    {
+        // We are unloading but have possible modifications. Save again (done in poll).
+        LOG_DBG("Document [" << getDocKey()
+                             << "] is unloading, but was possibly modified during saving. Skipping "
+                                "upload to save again before unloading.");
+        return;
+    }
+#endif
     if (needToUploadState != NeedToUpload::No)
     {
-        uploadToStorage(sessionId, success, result,
-                        /*force=*/needToUploadState == NeedToUpload::Force);
+        uploadToStorage(sessionId, /*force=*/needToUploadState == NeedToUpload::Force);
     }
     else
     {
@@ -1196,13 +1326,12 @@ void DocumentBroker::handleSaveResponse(const std::string& sessionId, bool succe
             LOG_DBG("Stopping after saving because "
                     << (_sessions.empty() ? "there are no active sessions left."
                                           : "the document is marked to destroy."));
-            _stop = true;
+            stop("unloading");
         }
     }
 }
 
-void DocumentBroker::uploadToStorage(const std::string& sessionId, bool success,
-                                     const std::string& result, bool force)
+void DocumentBroker::uploadToStorage(const std::string& sessionId, bool force)
 {
     assertCorrectThread();
 
@@ -1212,7 +1341,7 @@ void DocumentBroker::uploadToStorage(const std::string& sessionId, bool success,
     }
 
     constexpr bool isRename = false;
-    uploadToStorageInternal(sessionId, success, result, /*saveAsPath*/ std::string(),
+    uploadToStorageInternal(sessionId, /*saveAsPath*/ std::string(),
                             /*saveAsFilename*/ std::string(), isRename, force);
 
     // If marked to destroy, or session is disconnected, remove.
@@ -1227,8 +1356,7 @@ void DocumentBroker::uploadAsToStorage(const std::string& sessionId,
 {
     assertCorrectThread();
 
-    uploadToStorageInternal(sessionId, true, "", uploadAsPath, uploadAsFilename, isRename,
-                            /*force=*/false);
+    uploadToStorageInternal(sessionId, uploadAsPath, uploadAsFilename, isRename, /*force=*/false);
 }
 
 void DocumentBroker::uploadAfterLoadingTemplate(const std::string& sessionId)
@@ -1251,31 +1379,18 @@ void DocumentBroker::uploadAfterLoadingTemplate(const std::string& sessionId)
     }
 #endif //!MOBILEAPP
 
-    std::string result;
-    uploadToStorage(sessionId, true, result, /*force=*/false);
+    uploadToStorage(sessionId, /*force=*/false);
 }
 
-void DocumentBroker::uploadToStorageInternal(const std::string& sessionId, bool success,
-                                             const std::string& result,
+void DocumentBroker::uploadToStorageInternal(const std::string& sessionId,
                                              const std::string& saveAsPath,
                                              const std::string& saveAsFilename, const bool isRename,
                                              const bool force)
 {
     assertCorrectThread();
 
-    // If save requested, but core didn't save because document was unmodified
-    // notify the waiting thread, if any.
-    LOG_TRC("Uploading to storage docKey [" << _docKey << "] for session [" << sessionId <<
-            "]. Success: " << success << ", result: " << result << ", force: " << force);
-    if (!success && result == "unmodified" && !isRename && !force)
-    {
-        LOG_DBG("Skipped uploading as document [" << _docKey << "] was not modified.");
-        _storageManager.markLastUploadTime(); // Mark that the storage is up-to-date.
-        broadcastSaveResult(true, "unmodified");
-        _poll->wakeup();
-        return;
-    }
-
+    LOG_DBG("Uploading to storage docKey [" << _docKey << "] for session [" << sessionId
+                                            << "]. Force: " << force);
     const auto it = _sessions.find(sessionId);
     if (it == _sessions.end())
     {
@@ -1283,25 +1398,12 @@ void DocumentBroker::uploadToStorageInternal(const std::string& sessionId, bool 
                 << sessionId << "] not found while storing document docKey [" << _docKey
                 << "]. The document will not be uploaded to storage at this time.");
         broadcastSaveResult(false, "Session not found");
-        return;
-    }
 
-    // Check that we are actually about to upload a successfully saved document.
-    auto session = it->second;
-    if (!success && !force)
-    {
-        LOG_ERR("Cannot store docKey [" << _docKey << "] as .uno:Save has failed in LOK.");
-        session->sendTextFrameAndLogError("error: cmd=storage kind=savefailed");
-        broadcastSaveResult(false, "Could not save document in LibreOfficeKit");
         return;
-    }
-
-    if (force)
-    {
-        LOG_DBG("Document docKey [" << _docKey << "] will be forcefully uploaded to storage.");
     }
 
     const bool isSaveAs = !saveAsPath.empty();
+    auto session = it->second;
     const std::string uri = isSaveAs ? saveAsPath : session->getPublicUri().toString();
 
     // Map the FileId from the docKey to the new filename to anonymize the new filename as the FileId.
@@ -1344,17 +1446,16 @@ void DocumentBroker::uploadToStorageInternal(const std::string& sessionId, bool 
     StorageBase::AsyncUploadCallback asyncUploadCallback =
         [this](const StorageBase::AsyncUpload& asyncUp)
     {
-        LOG_TRC("onAsyncUploadCallback");
         switch (asyncUp.state())
         {
             case StorageBase::AsyncUpload::State::Running:
-                LOG_DBG("Async upload of [" << _docKey << "] is in progress during "
+                LOG_TRC("Async upload of [" << _docKey << "] is in progress during "
                                             << DocumentState::toString(_docState.activity()));
                 return;
 
             case StorageBase::AsyncUpload::State::Complete:
             {
-                LOG_DBG("Finished uploading [" << _docKey << "] during "
+                LOG_TRC("Finished uploading [" << _docKey << "] during "
                                                << DocumentState::toString(_docState.activity())
                                                << ", processing results.");
                 return handleUploadToStorageResponse(asyncUp.result());
@@ -1363,7 +1464,7 @@ void DocumentBroker::uploadToStorageInternal(const std::string& sessionId, bool 
             case StorageBase::AsyncUpload::State::None: // Unexpected: fallback.
             case StorageBase::AsyncUpload::State::Error:
             default:
-                break;
+                broadcastSaveResult(false, "Could not upload document to storage");
         }
 
         //FIXME: flag the failure so we retry.
@@ -1405,11 +1506,9 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
         return;
     }
 
-    // Storage save is considered successful when either storage returns OK or the document on the storage
-    // was changed and it was used to overwrite local changes
+    // Storage upload is considered successful only when storage returns OK.
     const bool lastUploadSuccessful =
-        uploadResult.getResult() == StorageBase::UploadResult::Result::OK ||
-        uploadResult.getResult() == StorageBase::UploadResult::Result::DOC_CHANGED;
+        uploadResult.getResult() == StorageBase::UploadResult::Result::OK;
     LOG_TRC("lastUploadSuccessful: " << lastUploadSuccessful);
     _storageManager.setLastUploadResult(lastUploadSuccessful);
 
@@ -1425,6 +1524,7 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
 
     if (uploadResult.getResult() == StorageBase::UploadResult::Result::OK)
     {
+        LOG_DBG("Last upload result: OK");
 #if !MOBILEAPP
         WopiStorage* wopiStorage = dynamic_cast<WopiStorage*>(_storage.get());
         if (wopiStorage != nullptr)
@@ -1438,7 +1538,7 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
             _storageManager.markLastUploadTime();
 
             // Save the storage timestamp.
-            _storageManager.setLastModifiedTime(_storage->getFileInfo().getModifiedTime());
+            _storageManager.setLastModifiedTime(_storage->getFileInfo().getLastModifiedTime());
 
             // Set the timestamp of the file we uploaded, to detect changes.
             _storageManager.setLastUploadedFileModifiedTime(_uploadRequest->newFileModifiedTime());
@@ -1455,9 +1555,6 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
             // Handle activity-specific logic.
             switch (_docState.activity())
             {
-                case DocumentState::Activity::None:
-                    break;
-
                 case DocumentState::Activity::Rename:
                 {
                     LOG_DBG("Renaming in storage after uploading the last saved version.");
@@ -1470,7 +1567,10 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
                 break;
 
                 default:
-                    break;
+                {
+                    // Check stop conditions.
+                }
+                break;
             }
 
             // Resume polling.
@@ -1542,18 +1642,18 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
         if (_docState.isUnloadRequested())
         {
             // We just uploaded, flag to destroy if unload is requested.
+            LOG_DBG("Unload requested after uploading, marking to destroy.");
             _docState.markToDestroy();
-            LOG_TRC("Unload requested after uploading, marking to destroy.");
         }
 
-        // If marked to destroy, then this was the last session.
-        if (_docState.isMarkedToDestroy() || _sessions.empty())
+        // If marked to destroy, and there are no late-arriving modifications, then stop.
+        if ((_docState.isMarkedToDestroy() || _sessions.empty()) && !isPossiblyModified())
         {
             // Stop so we get cleaned up and removed.
             LOG_DBG("Stopping after uploading because "
                     << (_sessions.empty() ? "there are no active sessions left."
                                           : "the document is marked to destroy."));
-            _stop = true;
+            stop("unloading");
         }
 
         return;
@@ -1574,6 +1674,7 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
     }
     else if (uploadResult.getResult() == StorageBase::UploadResult::Result::UNAUTHORIZED)
     {
+        LOG_DBG("Last upload result: UNAUTHORIZED");
         const auto session = _uploadRequest->session();
         if (session)
         {
@@ -1593,6 +1694,8 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
     }
     else if (uploadResult.getResult() == StorageBase::UploadResult::Result::FAILED)
     {
+        LOG_DBG("Last upload result: FAILED");
+
         //TODO: Should we notify all clients?
         const auto session = _uploadRequest->session();
         if (session)
@@ -1617,11 +1720,24 @@ void DocumentBroker::handleUploadToStorageResponse(const StorageBase::UploadResu
         LOG_ERR("PutFile says that Document changed in storage");
         _documentChangedInStorage = true;
         const std::string message
-            = isModified() ? "error: cmd=storage kind=documentconflict" : "close: documentconflict";
+            = isPossiblyModified() ? "error: cmd=storage kind=documentconflict" : "close: documentconflict";
 
-        broadcastMessage(message);
+        const std::size_t activeClients = broadcastMessage(message);
         broadcastSaveResult(false, "Conflict: Document changed in storage",
                             uploadResult.getReason());
+        if (activeClients == 0)
+        {
+            // No clients were contacted; we will never resolve this conflict.
+            stop("conflict");
+            std::stringstream state;
+            dumpState(state);
+            LOG_WRN("The document ["
+                    << _docKey
+                    << "] could not be uploaded to storage because there is a newer version there, "
+                       "and no active clients exist to resolve the conflict. The document should "
+                       "be recoverable from the quarantine. State:\n"
+                    << state.str());
+        }
     }
 }
 
@@ -1707,11 +1823,16 @@ bool DocumentBroker::autoSave(const bool force, const bool dontSaveIfUnmodified)
 
     LOG_TRC("autoSave(): forceful? " << force
                                      << ", dontSaveIfUnmodified: " << dontSaveIfUnmodified);
-    if (_sessions.empty() || _storage == nullptr || !isLoaded() ||
-        !_childProcess->isAlive() || (!isModified() && !force))
+    if (_sessions.empty() || _storage == nullptr || !isLoaded() || (!isModified() && !force))
     {
         // Nothing to do.
         LOG_TRC("Nothing to autosave [" << _docKey << "].");
+        return false;
+    }
+
+    if (_docState.isDisconnected())
+    {
+        LOG_DBG("Cannot autosave when disconnected from Kit.");
         return false;
     }
 
@@ -1785,6 +1906,119 @@ bool DocumentBroker::autoSave(const bool force, const bool dontSaveIfUnmodified)
     }
 
     return sent;
+}
+
+void DocumentBroker::autoSaveAndStop(const std::string& reason)
+{
+    LOG_TRC("autoSaveAndStop for docKey [" << getDocKey() << "]: " << reason);
+
+    if (_saveManager.isSaving() || isAsyncUploading())
+    {
+        LOG_TRC("Async saving/uploading in progress for docKey [" << getDocKey() << ']');
+        return;
+    }
+
+    if (_docState.isDisconnected() && !isStorageOutdated())
+    {
+        LOG_DBG("Disconnected from Kit and nothing to upload. Stopping");
+        stop(reason);
+        return;
+    }
+
+    bool canStop = false;
+    if (needToUploadToStorage() == NeedToUpload::No)
+    {
+        // Here we don't check for the modified flag because it can come in
+        // very late, or not at all. We care that there is nothing to upload
+        // and the last save succeeded, possibly because there was no
+        // modifications, and there has been no activity since.
+        if (!haveActivityAfterSaveRequest() &&
+            _saveManager.lastSaveRequestTime() < _saveManager.lastSaveResponseTime() &&
+            _saveManager.lastSaveSuccessful())
+        {
+            // We can stop, but the modified flag is set. Delayed ModifiedStatus?
+            if (isModified())
+            {
+                if (_saveManager.timeSinceLastSaveResponse() < std::chrono::seconds(2))
+                {
+                    LOG_INF("Can stop " << reason << " DocumentBroker for docKey [" << getDocKey()
+                                        << "] but will wait for isModified to clear.");
+                    return;
+                }
+
+                LOG_WRN("Will stop " << reason << " DocumentBroker for docKey [" << getDocKey()
+                                     << "] even with isModified, which is not clearing.");
+            }
+
+            // Nothing to upload and last save was successful; stop.
+            canStop = true;
+            LOG_TRC("autoSaveAndStop for docKey ["
+                    << getDocKey() << "]: no modifications since last successful save. Stopping.");
+        }
+        else if (!isPossiblyModified())
+        {
+            // Nothing to upload and no modifications; stop.
+            canStop = true;
+            LOG_TRC("autoSaveAndStop for docKey [" << getDocKey() << "]: not modified. Stopping.");
+        }
+    }
+
+    // Don't hammer on saving.
+    if (!canStop && _saveManager.canSaveNow(std::chrono::milliseconds(500)))
+    {
+        // Stop if there is nothing to save.
+        const bool possiblyModified = isPossiblyModified();
+        LOG_INF("Autosaving " << reason << " DocumentBroker for docKey [" << getDocKey()
+                              << "] before terminating. isPossiblyModified: "
+                              << (possiblyModified ? "yes" : "no")
+                              << ", conflict: " << (_documentChangedInStorage ? "yes" : "no"));
+        if (!autoSave(possiblyModified))
+        {
+            // Nothing to save. Try to upload if necessary.
+            const std::string sessionId = getWriteableSessionId();
+            if (!sessionId.empty())
+            {
+                checkAndUploadToStorage(sessionId);
+                if (isAsyncUploading())
+                {
+                    LOG_DBG("Uploading document before stopping.");
+                    return;
+                }
+            }
+            else
+            {
+                // There is nothing to do here except to detect data-loss and stop.
+                if (isStorageOutdated())
+                {
+                    std::stringstream state;
+                    dumpState(state);
+                    LOG_WRN("The document ["
+                            << _docKey
+                            << "] could not be uploaded to storage because there are no writable "
+                               "sessions to upload. The document should be recoverable from the "
+                               "quarantine. Stopping. State:\n"
+                            << state.str());
+                }
+
+                canStop = true;
+            }
+        }
+    }
+    else if (!canStop)
+    {
+        LOG_TRC("Too soon to issue another save on ["
+                << getDocKey() << "]: " << _saveManager.timeSinceLastSaveRequest()
+                << " since last save request and " << _saveManager.timeSinceLastSaveRequest()
+                << " since last save response");
+    }
+
+    if (canStop)
+    {
+        // Nothing to save, nothing to upload, and no modifications. Stop.
+        LOG_INF("Nothing to save or upload. Terminating "
+                << reason << " DocumentBroker for docKey [" << getDocKey() << ']');
+        stop(reason);
+    }
 }
 
 bool DocumentBroker::sendUnoSave(const std::string& sessionId, bool dontTerminateEdit,
@@ -1922,9 +2156,6 @@ std::size_t DocumentBroker::addSessionInternal(const std::shared_ptr<ClientSessi
 #if !MOBILEAPP
     // Tell the admin console about this new doc
     std::string wopiHost = _storage->getUri().Poco::URI::getHost();
-    if (wopiHost.std::string::empty()) {
-        wopiHost = "";
-    }
     Admin::instance().addDoc(_docKey, getPid(), getFilename(), id, session->getUserName(),
                              session->getUserId(), _childProcess->getSMapsFD(), wopiHost);
     Admin::instance().setDocWopiDownloadDuration(_docKey, _wopiDownloadDuration);
@@ -1938,6 +2169,11 @@ std::size_t DocumentBroker::addSessionInternal(const std::shared_ptr<ClientSessi
     LOG_TRC("Added " << (session->isReadOnly() ? "readonly" : "non-readonly") <<
             " session [" << id << "] to docKey [" <<
             _docKey << "] to have " << count << " sessions.");
+
+    if (UnitWSD::isUnitTesting())
+    {
+        UnitWSD::get().onDocBrokerAddSession(_docKey, session);
+    }
 
     return count;
 }
@@ -1956,18 +2192,21 @@ std::size_t DocumentBroker::removeSession(const std::string& id)
         }
         std::shared_ptr<ClientSession> session = it->second;
 
-        const bool isLastSession = (_sessions.size() == 1);
+        const std::size_t activeSessionCount = countActiveSessions();
 
         const bool lastEditableSession = (!session->isReadOnly() || session->isAllowChangeComments()) && !haveAnotherEditableSession(id);
         static const bool dontSaveIfUnmodified = !COOLWSD::getConfigValue<bool>("per_document.always_save_on_exit", false);
 
-        LOG_INF("Removing session ["
-                << id << "] on docKey [" << _docKey << "]. Have " << _sessions.size()
-                << " sessions. IsReadOnly: " << session->isReadOnly()
-                << ", IsViewLoaded: " << session->isViewLoaded() << ", IsWaitDisconnected: "
-                << session->inWaitDisconnected() << ", MarkToDestroy: " << _docState.isMarkedToDestroy()
-                << ", LastEditableSession: " << lastEditableSession << ", DontSaveIfUnmodified: "
-                << dontSaveIfUnmodified << ", IsPossiblyModified: " << isPossiblyModified());
+        LOG_INF("Removing session [" << id << "] on docKey [" << _docKey << "]. Have "
+                                     << _sessions.size() << " sessions (" << activeSessionCount
+                                     << " active). IsReadOnly: " << session->isReadOnly()
+                                     << ", IsViewLoaded: " << session->isViewLoaded()
+                                     << ", IsWaitDisconnected: " << session->inWaitDisconnected()
+                                     << ", Unloading: " << _docState.isUnloadRequested()
+                                     << ", MarkToDestroy: " << _docState.isMarkedToDestroy()
+                                     << ", LastEditableSession: " << lastEditableSession
+                                     << ", DontSaveIfUnmodified: " << dontSaveIfUnmodified
+                                     << ", IsPossiblyModified: " << isPossiblyModified());
 
         // In theory, we almost could do this here:
 
@@ -1995,15 +2234,15 @@ std::size_t DocumentBroker::removeSession(const std::string& id)
             disconnectSessionInternal(id);
 
         // Last view going away; can destroy?
-        if (isLastSession)
+        if (activeSessionCount <= 1)
         {
-            if (_saveManager.isSaving() || isAsyncSaveInProgress())
+            if (_saveManager.isSaving() || isAsyncUploading())
             {
                 // Don't destroy just yet, wait until save and upload are done.
                 // Notice that the save and/or upload could have been triggered
                 // earlier, and not necessarily here when removing this last session.
                 _docState.setUnloadRequested();
-                LOG_DBG("Removing last session and will unload after saving. Setting "
+                LOG_DBG("Removing last session and will unload after saving and uploading. Setting "
                         "UnloadRequested flag.");
             }
             else if (_sessions.empty())
@@ -2013,8 +2252,11 @@ std::size_t DocumentBroker::removeSession(const std::string& id)
                 LOG_DBG("No more sessions after removing last. Setting MarkToDestroy flag.");
             }
         }
-        else
-            assert(!_docState.isMarkedToDestroy());
+        else if (activeSessionCount > 0)
+        {
+            LOG_ASSERT_MSG(!_docState.isMarkedToDestroy(),
+                           "Have active sessions while marked to destroy");
+        }
     }
     catch (const std::exception& ex)
     {
@@ -2041,7 +2283,8 @@ void DocumentBroker::disconnectSessionInternal(const std::string& id)
             if (_docState.isUnloadRequested())
             {
                 // We must be the last session, flag to destroy if unload is requested.
-                assert(_sessions.size() == 1 && "Unload-requested with multiple sessions.");
+                LOG_ASSERT_MSG(countActiveSessions() <= 1,
+                               "Unload-requested with multiple sessions");
                 _docState.markToDestroy();
                 LOG_TRC("Unload requested while disconnecting session ["
                         << id << "], having " << _sessions.size()
@@ -2141,7 +2384,10 @@ void DocumentBroker::finalRemoveSession(const std::string& id)
                 LOG_END(logger, true);
             }
 
-            return;
+            if (UnitWSD::isUnitTesting())
+            {
+                UnitWSD::get().onDocBrokerRemoveSession(_docKey, it->second);
+            }
         }
         else
         {
@@ -2164,8 +2410,14 @@ std::shared_ptr<ClientSession> DocumentBroker::createNewClientSession(
 {
     try
     {
-        _docState.resetUnloadRequested(); // We can't unload, if it was requested.
-        LOG_TRC("Creating new session. Resetting UnloadRequested flag.");
+        if (isMarkedToDestroy() || _docState.isUnloadRequested())
+        {
+            LOG_INF("DocumentBroker ["
+                    << getDocKey()
+                    << "] is marked to destroy and will not create new client sessions.");
+
+            return nullptr;
+        }
 
         // Now we have a DocumentBroker and we're ready to process client commands.
         if (ws)
@@ -2716,6 +2968,22 @@ bool DocumentBroker::haveAnotherEditableSession(const std::string& id) const
     return false;
 }
 
+std::size_t DocumentBroker::countActiveSessions() const
+{
+    assertCorrectThread();
+
+    std::size_t count = 0;
+    for (const auto& it : _sessions)
+    {
+        if (it.second->isViewLoaded() && !it.second->inWaitDisconnected())
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
 void DocumentBroker::setModified(const bool value)
 {
 #if !MOBILEAPP
@@ -2734,7 +3002,7 @@ void DocumentBroker::setModified(const bool value)
         _storage->setUserModified(value);
     }
 
-    LOG_TRC("Modified state set to " << value << " for Doc [" << _docId << ']');
+    LOG_DBG("Modified state set to " << value << " for Doc [" << _docId << ']');
     _isModified = value;
 }
 
@@ -2770,7 +3038,7 @@ bool DocumentBroker::forwardToChild(const std::string& viewId, const std::string
     {
         assert(!_uriJailed.empty());
 
-        StringVector tokens = Util::tokenize(msg);
+        StringVector tokens = StringVector::tokenize(msg);
         if (tokens.size() > 1 && tokens.equals(1, "load"))
         {
             // The json options must come last.
@@ -2870,23 +3138,13 @@ void DocumentBroker::shutdownClients(const std::string& closeReason)
     }
 }
 
-void DocumentBroker::childSocketTerminated()
-{
-    assertCorrectThread();
-
-    if (!_childProcess->isAlive())
-    {
-        LOG_ERR("Child for doc [" << _docKey << "] terminated prematurely.");
-    }
-
-    // We could restore the kit if this was unexpected.
-    // For now, close the connections to cleanup.
-    shutdownClients("terminated");
-}
-
 void DocumentBroker::terminateChild(const std::string& closeReason)
 {
     assertCorrectThread();
+
+#if !MOBILEAPP
+    Quarantine::quarantineFile(this, _filename);
+#endif
 
     LOG_INF("Terminating doc [" << _docKey << "] with reason: " << closeReason);
 
@@ -2907,20 +3165,40 @@ void DocumentBroker::closeDocument(const std::string& reason)
 {
     assertCorrectThread();
 
-    LOG_DBG("Closing DocumentBroker for docKey [" << _docKey << "] with reason: " << reason);
-    _closeReason = reason;
     _docState.setCloseRequested();
+    _closeReason = reason;
+    if (_documentChangedInStorage)
+    {
+        // Discarding changes in the face of conflict in storage.
+        LOG_DBG("Closing DocumentBroker for docKey ["
+                << _docKey << "] and discarding changes with reason: " << reason);
+        stop(reason);
+    }
+    else
+    {
+        LOG_DBG("Closing DocumentBroker for docKey [" << _docKey << "] with reason: " << reason);
+    }
 }
 
-void DocumentBroker::broadcastMessage(const std::string& message) const
+void DocumentBroker::disconnectedFromKit()
+{
+    LOG_DBG("DocBroker " << _docKey << " Disconnected from Kit. Flagging to close.");
+    _docState.setDisconnected();
+    closeDocument("docdisconnected");
+}
+
+std::size_t DocumentBroker::broadcastMessage(const std::string& message) const
 {
     assertCorrectThread();
 
     LOG_DBG("Broadcasting message [" << message << "] to all " << _sessions.size() <<  " sessions.");
+    std::size_t count = 0;
     for (const auto& sessionIt : _sessions)
     {
-        sessionIt.second->sendTextFrame(message);
+        count += sessionIt.second->sendTextFrame(message);
     }
+
+    return count;
 }
 
 void DocumentBroker::broadcastMessageToOthers(const std::string& message, const std::shared_ptr<ClientSession>& _session) const
@@ -3156,7 +3434,7 @@ bool RenderSearchResultBroker::handleInput(const std::vector<char>& payload)
         auto message = std::make_shared<Message>(payload.data(), payload.size(), Message::Dir::Out);
         auto const& messageData = message->data();
 
-        static std::string commandString = "rendersearchresult:";
+        static std::string commandString = "rendersearchresult:\n";
         static std::vector<char> commandStringVector(commandString.begin(), commandString.end());
 
         if (messageData.size() >= commandStringVector.size())
@@ -3200,8 +3478,9 @@ void DocumentBroker::dumpState(std::ostream& os)
     uint64_t sent = 0, recv = 0;
     getIOStats(sent, recv);
 
-    auto now = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
 
+    os << std::boolalpha;
     os << " Broker: " << COOLWSD::anonymizeUrl(_filename) << " pid: " << getPid();
     if (_docState.isMarkedToDestroy())
         os << " *** Marked to destroy ***";
@@ -3210,12 +3489,10 @@ void DocumentBroker::dumpState(std::ostream& os)
     if (isLoaded())
         os << "\n  loaded in: " << _loadDuration;
     else
-        os << "\n  still loading... " <<
-            std::chrono::duration_cast<std::chrono::seconds>(
-                now - _threadStart).count() << 's';
+        os << "\n  still loading... "
+           << std::chrono::duration_cast<std::chrono::seconds>(now - _threadStart);
     os << "\n  sent: " << sent;
     os << "\n  recv: " << recv;
-    os << "\n  modified?: " << isModified();
     os << "\n  jail id: " << _jailId;
     os << "\n  filename: " << COOLWSD::anonymizeUrl(_filename);
     os << "\n  public uri: " << _uriPublic.toString();
@@ -3223,27 +3500,32 @@ void DocumentBroker::dumpState(std::ostream& os)
     os << "\n  doc key: " << _docKey;
     os << "\n  doc id: " << _docId;
     os << "\n  num sessions: " << _sessions.size();
-    os << "\n  thread start: " << Util::getSteadyClockAsString(_threadStart);
-    os << "\n  doc state: " << DocumentState::toString(_docState.status());
-    os << "\n  doc activity: " << DocumentState::toString(_docState.activity());
-    if (_docState.activity() == DocumentState::Activity::Rename)
-        os << "\n  (new name: " << _renameFilename << ')';
-    os << "\n  unload requested: " << _docState.isUnloadRequested();
-    os << "\n  last saved: " << Util::getSteadyClockAsString(_storageManager.getLastUploadTime());
-    os << "\n  last save request: "
-       << Util::getSteadyClockAsString(_saveManager.lastSaveRequestTime());
-    os << "\n  last save response: "
-       << Util::getSteadyClockAsString(_saveManager.lastSaveResponseTime());
-    os << "\n  last storage upload was successful: " << isLastStorageUploadSuccessful();
-    os << "\n  last modified: " << Util::getHttpTime(_storageManager.getLastModifiedTime());
-    os << "\n  file last modified: " << Util::getHttpTime(_saveManager.getLastModifiedTime());
-    os << "\n  isSaving now: " << std::boolalpha << _saveManager.isSaving();
+    os << "\n  thread start: " << Util::getTimeForLog(now, _threadStart);
+    os << "\n  modified?: " << isModified();
+    os << "\n  possibly-modified: " << isPossiblyModified();
+    os << "\n  haveActivityAfterSaveRequest: " << haveActivityAfterSaveRequest();
+    os << "\n  isViewFileExtension: " << _isViewFileExtension;
+
     if (_limitLifeSeconds > std::chrono::seconds::zero())
         os << "\n  life limit in seconds: " << _limitLifeSeconds.count();
     os << "\n  idle time: " << getIdleTimeSecs();
-    os << "\n  cursor " << _cursorPosX << ", " << _cursorPosY
-      << "( " << _cursorWidth << ',' << _cursorHeight << ")\n";
+    os << "\n  cursor X: " << _cursorPosX << ", Y: " << _cursorPosY
+      << ", W:" << _cursorWidth << ", H: " << _cursorHeight;
+
+    os << "\n  DocumentState:";
+    _docState.dumpState(os, "\n    ");
+
+    if (_docState.activity() == DocumentState::Activity::Rename)
+        os << "\n  (new name: " << _renameFilename << ')';
+
+    os << "\n  SaveManager:";
+    _saveManager.dumpState(os, "\n    ");
+
+    os << "\n  StorageManager:";
+    _storageManager.dumpState(os, "\n    ");
+
     _lockCtx->dumpState(os);
+
     if (_tileCache)
         _tileCache->dumpState(os);
 
@@ -3251,17 +3533,20 @@ void DocumentBroker::dumpState(std::ostream& os)
 
 #if !MOBILEAPP
     // Bit nasty - need a cleaner way to dump state.
-    for (auto &it : _sessions)
+    os << "\n  Sessions:";
+    for (const auto &it : _sessions)
     {
         auto proto = it.second->getProtocol();
         auto proxy = dynamic_cast<ProxyProtocolHandler *>(proto.get());
         if (proxy)
             proxy->dumpProxyState(os);
+        else
+            std::static_pointer_cast<MessageHandlerInterface>(it.second)->dumpState(os);
     }
 #endif
 }
 
-bool DocumentBroker::isAsyncSaveInProgress() const
+bool DocumentBroker::isAsyncUploading() const
 {
     if (!_storage)
         return false;
@@ -3270,5 +3555,10 @@ bool DocumentBroker::isAsyncSaveInProgress() const
 
     return state == StorageBase::AsyncUpload::State::Running;
 }
+
+// not beautiful - but neither is editing mobile project files.
+#if MOBILEAPP
+#  include "Exceptions.cpp"
+#endif
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

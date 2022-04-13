@@ -3,7 +3,8 @@
  * L.Control.RowHeader
 */
 
-/* global _UNO app */
+/* global _UNO app UNOModifier */
+
 L.Control.RowHeader = L.Control.Header.extend({
 	name: L.CSections.RowHeader.name,
 	anchor: [[L.CSections.CornerHeader.name, 'bottom', 'top'], [L.CSections.RowGroup.name, 'right', 'left']],
@@ -30,6 +31,7 @@ L.Control.RowHeader = L.Control.Header.extend({
 		this._mouseOverEntry = null;
 		this._lastMouseOverIndex = undefined;
 		this._hitResizeArea = false;
+		this.sectionProperties.docLayer = this._map._docLayer;
 
 		this._selectionBackgroundGradient = [ '#3465A4', '#729FCF', '#004586' ];
 
@@ -52,6 +54,10 @@ L.Control.RowHeader = L.Control.Header.extend({
 			'.uno:DeleteRows': {
 				name: _UNO('.uno:DeleteRows', 'spreadsheet', true),
 				callback: (this._deleteSelectedRow).bind(this)
+			},
+			'.uno:RowHeight': {
+				name: _UNO('.uno:RowHeight', 'spreadsheet', true),
+				callback: (this._rowHeight).bind(this)
 			},
 			'.uno:SetOptimalRowHeight': {
 				name: _UNO('.uno:SetOptimalRowHeight', 'spreadsheet', true),
@@ -163,10 +169,10 @@ L.Control.RowHeader = L.Control.Header.extend({
 
 		var modifier = 0;
 		if (e.shiftKey) {
-			modifier += this._map.keyboard.keyModifier.shift;
+			modifier += UNOModifier.SHIFT;
 		}
 		if (e.ctrlKey) {
-			modifier += this._map.keyboard.keyModifier.ctrl;
+			modifier += UNOModifier.CTRL;
 		}
 
 		this._selectRow(row, modifier);

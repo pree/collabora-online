@@ -2,8 +2,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2021-11-18 09:22+0200\n"
-"PO-Revision-Date: 2021-11-18 08:06+0000\n"
+"POT-Creation-Date: 2022-04-12 09:03+0200\n"
+"PO-Revision-Date: 2022-03-13 21:44+0000\n"
 "Last-Translator: Yaron Shahrabani <sh.yaron@gmail.com>\n"
 "Language-Team: Hebrew <https://hosted.weblate.org/projects/collabora-online/"
 "help/he/>\n"
@@ -1210,6 +1210,8 @@ msgid ""
 "where (/) is the division sign on the numeric key pad. Selects the matrix "
 "formula range that contains the cursor."
 msgstr ""
+"כאשר (/) הוא סמל החילוק במקלדת הנומרית. בוחר את טווח נוסחת המטריצה שמכילה את "
+"הסמן."
 
 #: html/cool-help.html%2Bdiv.div.table.tr.td:150-158
 msgid "Ctrl</kbd><span class=\"kbd--plus\">+</span><kbd>/"
@@ -1217,7 +1219,7 @@ msgstr "Ctrl</kbd><span class=\"kbd--plus\">+</span><kbd>/"
 
 #: html/cool-help.html%2Bdiv.div.table.tr.td:151-18
 msgid "Insert cells (as in menu Insert - Cells)"
-msgstr ""
+msgstr "הוספת תאים (כמו בהוספה - תאים)"
 
 #: html/cool-help.html%2Bdiv.div.table.tr.td:151-85
 msgid "Ctrl</kbd><span class=\"kbd--plus\">+</span><kbd>Plus key"
@@ -1225,7 +1227,7 @@ msgstr "Ctrl</kbd><span class=\"kbd--plus\">+</span><kbd>מקש פלוס"
 
 #: html/cool-help.html%2Bdiv.div.table.tr.td:152-18
 msgid "Delete cells (as in menu Edit - Delete Cells)"
-msgstr ""
+msgstr "מחיקת תאים (כמו בעריכה - מחיקת תאים)"
 
 #: html/cool-help.html%2Bdiv.div.table.tr.td:152-90
 msgid "Ctrl</kbd><span class=\"kbd--plus\">+</span><kbd>Minus key"
@@ -1726,17 +1728,19 @@ msgstr ""
 #: html/cool-help.html%2Bdiv.p:366-5
 msgid ""
 "When closing a document, it is automatically saved if it has been changed."
-msgstr ""
+msgstr "סגירת מסמך שומרת אותו אוטומטית אם נערך בו שינוי."
 
 #: html/cool-help.html%2Bdiv.p:369-5
 msgid ""
 "Document editing should be familiar to everyone that has used an office "
 "application before, but here are some distinctive features:"
 msgstr ""
+"עריכת מסמכים אמורה להיות תהליך מוכר לכל מי שהשתמש ביישומים משרדיים בעבר אבל "
+"כאן יש כמה יכולות יחודיות:"
 
 #: html/cool-help.html%2Bdiv.h4:370-5
 msgid "Copy and Paste"
-msgstr ""
+msgstr "העתקה והדבקה"
 
 #: html/cool-help.html%2Bdiv.p:371-5
 msgid ""
@@ -1767,7 +1771,7 @@ msgstr ""
 
 #: html/cool-help.html%2Bdiv.h4:373-5
 msgid "Document repair"
-msgstr ""
+msgstr "תיקון מסמכים"
 
 #: html/cool-help.html%2Bdiv.p:374-5
 msgid ""
@@ -1776,12 +1780,17 @@ msgid ""
 "Repair function allows users to undo other editor’s changes to the document "
 "to a previous state."
 msgstr ""
+"כאשר מספר אנשים עורכים את אותו המסמך בו־זמנית, יכול להיות שהשינויים שלהם "
+"סותרים ומצב כזה עלול לגרום לבלבול. פונקציית תיקון המסמכים מאפשרת למשתמשים "
+"לבטל שינויים למסמך של עורכים אחרים למצב קודם."
 
 #: html/cool-help.html%2Bdiv.p:375-5
 msgid ""
 "To jump back to the selected state, select it with the mouse and hit <span "
 "class=\"ui\">Jump to state</span>."
 msgstr ""
+"כדי לקפוץ חזרה למצב הנבחר, יש לבחור אותו עם העכבר וללחוץ על <span class=\""
+"ui\">קפיצה למצב</span>."
 
 #: html/cool-help.html%2Bdiv.p:377-5
 msgid ""

@@ -248,6 +248,9 @@ class CommentSection {
 	}
 
 	public shouldCollapse () {
+		if (!this.containerObject.getDocumentAnchorSection())
+			return false;
+
 		var commentWidth = 300;
 		var availableSpace = this.containerObject.getDocumentAnchorSection().size[0] - app.file.size.pixels[0];
 		return availableSpace < commentWidth * 2;
@@ -276,13 +279,12 @@ class CommentSection {
 		var showResolved = this.sectionProperties.showResolved;
 
 		if (threadOnly) {
-			if (threadOnly.sectionProperties.data.parent !== '0')
+			if (!threadOnly.sectionProperties.data.trackchange && threadOnly.sectionProperties.data.parent !== '0')
 				threadOnly = commentList[this.getIndexOf(threadOnly.sectionProperties.data.parent)];
 		}
 
 		for (var i = 0; i < commentList.length; i++) {
-			if (commentList[i].sectionProperties.data.parent === '0') {
-
+			if (commentList[i].sectionProperties.data.parent === '0' || commentList[i].sectionProperties.data.trackchange) {
 				lastChild = this.getLastChildIndexOf(commentList[i].sectionProperties.data.id);
 				var commentThread = [];
 				while (true) {
@@ -300,11 +302,12 @@ class CommentSection {
 						commentThread.unshift(comment);
 					}
 
-					if (commentList[lastChild].sectionProperties.data.parent === '0')
+					if (commentList[lastChild].sectionProperties.data.parent === '0' || commentList[lastChild].sectionProperties.data.trackchange)
 						break;
 
 					lastChild = this.getIndexOf(commentList[lastChild].sectionProperties.data.parent);
 				}
+
 				if (commentThread.length > 0)
 				{
 					rootComment = {
@@ -386,6 +389,7 @@ class CommentSection {
 		var commentData = comment.sectionProperties.data;
 
 		var dialog = vex.dialog.open({
+			contentClassName: 'vex-has-inputs',
 			message: '',
 			input: [
 				'<textarea name="comment" id="new-mobile-comment-input-area" class="cool-annotation-textarea" required>' + (commentData.text && isMod ? commentData.text: '') + '</textarea>'
@@ -572,6 +576,7 @@ class CommentSection {
 			}
 		}
 		else {
+			this.unselect();
 			annotation.reply();
 			this.select(annotation);
 			annotation.focus();
@@ -587,6 +592,7 @@ class CommentSection {
 				this.save(annotation);
 			}.bind(this), /* isMod */ true);
 		} else {
+			this.unselect();
 			annotation.edit();
 			this.select(annotation);
 			annotation.focus();
@@ -911,7 +917,8 @@ class CommentSection {
 		if (comment.parent && comment.parent > '0') {
 			var parentIdx = this.getIndexOf(comment.parent);
 
-			this.containerObject.addSection(annotation);
+			if (!this.containerObject.addSection(annotation))
+				return;
 			this.sectionProperties.commentList.splice(parentIdx + 1, 0, annotation);
 			this.updateIdIndexMap();
 
@@ -919,7 +926,8 @@ class CommentSection {
 			this.showHideComment(annotation);
 		}
 		else {
-			this.containerObject.addSection(annotation);
+			if (!this.containerObject.addSection(annotation))
+				return;
 			this.sectionProperties.commentList.push(annotation);
 		}
 
@@ -1079,7 +1087,7 @@ class CommentSection {
 				modified.setData(modifiedObj);
 				modified.update();
 				this.update();
-				if (!(<any>window).mode.isMobile() && this.isCollapsed) {
+				if (!(<any>window).mode.isMobile() && this.isCollapsed && this.sectionProperties.selectedComment) {
 					var parent = this.sectionProperties.commentList[this.getRootIndexOf(modified.sectionProperties.data.id)];
 					this.openMobileWizardPopup(parent);
 				}
@@ -1395,8 +1403,10 @@ class CommentSection {
 		for (var i = 0; i < subList.length; i++) {
 			lastY = subList[i].sectionProperties.data.anchorPix[1] > lastY ? subList[i].sectionProperties.data.anchorPix[1]: lastY;
 
+			var isRTL = document.documentElement.dir === 'rtl';
+
 			if (selectedComment && !this.sectionProperties.selectedComment.isCollapsed)
-				(new L.PosAnimation()).run(subList[i].sectionProperties.container, {x: Math.round(actualPosition[0] / app.dpiScale) - 60, y: Math.round(lastY / app.dpiScale)});
+				(new L.PosAnimation()).run(subList[i].sectionProperties.container, {x: Math.round(actualPosition[0] / app.dpiScale) - 60 * (isRTL ? -1 : 1), y: Math.round(lastY / app.dpiScale)});
 			else
 				(new L.PosAnimation()).run(subList[i].sectionProperties.container, {x: Math.round(actualPosition[0] / app.dpiScale), y: Math.round(lastY / app.dpiScale)});
 
@@ -1497,15 +1507,22 @@ class CommentSection {
 
 			this.updateScaling();
 
+			var isRTL = document.documentElement.dir === 'rtl';
+
 			var topRight: Array<number> = [this.myTopLeft[0], this.myTopLeft[1] + this.sectionProperties.marginY - this.documentTopLeft[1]];
 			var yOrigin = null;
 			var selectedIndex = null;
-			var x = topRight[0];
+			var x = isRTL ? 0 : topRight[0];
 			var commentWidth = this.isCollapsed ? 70 : 300;
 			var availableSpace = this.containerObject.getDocumentAnchorSection().size[0] - app.file.size.pixels[0];
 
-			if (availableSpace > commentWidth)
-				x = topRight[0] - Math.round((this.containerObject.getDocumentAnchorSection().size[0] - app.file.size.pixels[0]) * 0.5);
+			if (availableSpace > commentWidth) {
+				if (isRTL)
+					x = Math.round((this.containerObject.getDocumentAnchorSection().size[0] - app.file.size.pixels[0]) * 0.5) - this.containerObject.getDocumentAnchorSection().size[0];
+				else
+					x = topRight[0] - Math.round((this.containerObject.getDocumentAnchorSection().size[0] - app.file.size.pixels[0]) * 0.5);
+			} else if (isRTL)
+				x = -this.containerObject.getDocumentAnchorSection().size[0];
 			else
 				x -= commentWidth;
 
@@ -1516,8 +1533,10 @@ class CommentSection {
 				yOrigin = this.sectionProperties.commentList[selectedIndex].sectionProperties.data.anchorPix[1] - this.documentTopLeft[1];
 				var tempCrd: Array<number> = this.sectionProperties.commentList[selectedIndex].sectionProperties.data.anchorPix;
 				var resolved:string = this.sectionProperties.commentList[selectedIndex].sectionProperties.data.resolved;
-				if (!resolved || resolved === 'false' || this.sectionProperties.showResolved)
-					this.showArrow([tempCrd[0], tempCrd[1]], [x, tempCrd[1]]);
+				if (!resolved || resolved === 'false' || this.sectionProperties.showResolved) {
+					var posX = isRTL ? (this.containerObject.getDocumentAnchorSection().size[0] + x + 15) : x;
+					this.showArrow([tempCrd[0], tempCrd[1]], [posX, tempCrd[1]]);
+				}
 			}
 			else {
 				this.hideArrow();
@@ -1598,7 +1617,10 @@ class CommentSection {
 	private getRootIndexOf (id: any) {
 		var index = this.getIndexOf(id);
 		for (var idx = index - 1;
-			     idx >=0 && this.sectionProperties.commentList[idx].sectionProperties.data.id === this.sectionProperties.commentList[idx + 1].sectionProperties.data.parent;
+			     idx >=0 &&
+				 this.sectionProperties.commentList[idx] &&
+				 this.sectionProperties.commentList[idx + 1] &&
+				 this.sectionProperties.commentList[idx].sectionProperties.data.id === this.sectionProperties.commentList[idx + 1].sectionProperties.data.parent;
 			     idx--)
 		{
 			index = idx;
@@ -1684,7 +1706,8 @@ class CommentSection {
 					comment.avatar = this.map._viewInfoByUserName[comment.author].userextrainfo.avatar;
 				}
 				var commentSection = new app.definitions.Comment(comment, {}, this);
-				this.containerObject.addSection(commentSection);
+				if (!this.containerObject.addSection(commentSection))
+					continue;
 				this.sectionProperties.commentList.push(commentSection);
 				this.idIndexMap.set(commentSection.sectionProperties.data.id, i);
 				this.updateResolvedState(this.sectionProperties.commentList[i]);
@@ -1716,7 +1739,8 @@ class CommentSection {
 					changeComment.avatar = this.map._viewInfoByUserName[changeComment.author].userextrainfo.avatar;
 				}
 				var commentSection = new app.definitions.Comment(changeComment, {}, this);
-				this.containerObject.addSection(commentSection);
+				if (!this.containerObject.addSection(commentSection))
+					continue;
 				this.sectionProperties.commentList.push(commentSection);
 			}
 
@@ -1733,7 +1757,7 @@ class CommentSection {
 	private clearChanges() {
 		this.containerObject.pauseDrawing();
 		for (var i: number = this.sectionProperties.commentList.length -1; i > -1; i--) {
-			if (this.sectionProperties.commentList[i].trackchange) {
+			if (this.sectionProperties.commentList[i].sectionProperties.data.trackchange) {
 				this.containerObject.removeSection(this.sectionProperties.commentList[i].name);
 				this.sectionProperties.commentList.splice(i, 1);
 			}
@@ -1749,7 +1773,7 @@ class CommentSection {
 	private clearList () {
 		this.containerObject.pauseDrawing();
 		for (var i: number = this.sectionProperties.commentList.length -1; i > -1; i--) {
-			if (!this.sectionProperties.commentList[i].trackchange) {
+			if (!this.sectionProperties.commentList[i].sectionProperties.data.trackchange) {
 				this.containerObject.removeSection(this.sectionProperties.commentList[i].name);
 				this.sectionProperties.commentList.splice(i, 1);
 			}
@@ -1763,7 +1787,11 @@ class CommentSection {
 
 	public onCommentsDataUpdate() {
 		for (var i: number = this.sectionProperties.commentList.length -1; i > -1; i--) {
-			this.sectionProperties.commentList[i].onCommentDataUpdate();
+			var comment = this.sectionProperties.commentList[i];
+			if (!comment.valid) {
+				comment.sectionProperties.commentListSection.removeItem(comment.sectionProperties.data.id);
+			}
+			comment.onCommentDataUpdate();
 		}
 	}
 

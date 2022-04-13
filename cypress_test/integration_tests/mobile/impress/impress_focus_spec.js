@@ -5,10 +5,11 @@ var mobileHelper = require('../../common/mobile_helper');
 var impressHelper = require('../../common/impress_helper');
 
 describe('Impress focus tests', function() {
-	var testFileName = 'focus.odp';
+	var origTestFileName = 'focus.odp';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'impress');
+		testFileName = helper.beforeAll(origTestFileName, 'impress');
 	});
 
 	afterEach(function() {
@@ -22,8 +23,7 @@ describe('Impress focus tests', function() {
 		impressHelper.assertNotInTextEditMode();
 
 		// Body has the focus -> can't type in the document
-		cy.document().its('activeElement.tagName')
-			.should('be.eq', 'BODY');
+		helper.assertFocus('tagName', 'BODY');
 
 		// One tap on a text shape, on the whitespace area,
 		// does not start editing.
@@ -41,8 +41,7 @@ describe('Impress focus tests', function() {
 			});
 
 		// No focus
-		cy.document().its('activeElement.tagName')
-			.should('be.eq', 'BODY');
+		helper.assertFocus('tagName', 'BODY');
 
 		cy.wait(1000);
 

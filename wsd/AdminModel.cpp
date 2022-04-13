@@ -23,6 +23,7 @@
 #include <Unit.hpp>
 #include <Util.hpp>
 #include <wsd/COOLWSD.hpp>
+#include <wsd/Exceptions.hpp>
 
 #include <fnmatch.h>
 #include <dirent.h>
@@ -508,13 +509,13 @@ void AdminModel::addDocument(const std::string& docKey, pid_t pid,
                              const int smapsFD, const std::string& wopiHost)
 {
     assertCorrectThread();
-
     const auto ret = _documents.emplace(docKey, std::unique_ptr<Document>(new Document(docKey, pid, filename, wopiHost)));
     ret.first->second->setProcSMapsFD(smapsFD);
     ret.first->second->takeSnapshot();
     ret.first->second->addView(sessionId, userName, userId);
     LOG_DBG("Added admin document [" << docKey << "].");
 
+    std::string memoryAllocated;
     std::string encodedUsername;
     std::string encodedFilename;
     std::string encodedUserId;
@@ -537,21 +538,37 @@ void AdminModel::addDocument(const std::string& docKey, pid_t pid,
     {
         if (_memStats.empty())
         {
-            oss << 0;
+            memoryAllocated = "0";
         }
         else
         {
             // Estimate half as much as wsd+forkit.
-            oss << _memStats.front() / 2;
+            memoryAllocated = std::to_string(_memStats.front() / 2);
         }
     }
     else
     {
-        oss << _documents.begin()->second->getMemoryDirty();
+        memoryAllocated = std::to_string(_documents.begin()->second->getMemoryDirty());
     }
 
-    oss << ' ' << wopiHost;
+    oss << memoryAllocated << ' ' << wopiHost;
+    if (COOLWSD::getConfigValue<bool>("logging.docstats", false))
+    {
+        std::ostringstream osst;
+        Poco::AutoPtr<Poco::Channel> channel = Log::logger().getChannel();
+        char output[64];
+        std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+        std::time_t current = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+        gmtime_r(&current, &tm);
+        strftime(output, sizeof(output), "%F %T", &tm);
+        osst << output << " docstats : adding a document : " << filename
+             << ", created by : " << COOLWSD::anonymizeUsername(userName)
+             << ", using WopiHost : " << COOLWSD::anonymizeUrl(wopiHost)
+             << ", allocating memory of : " << memoryAllocated;
 
+        channel->log(Poco::Message("admin", osst.str(), Poco::Message::Priority::PRIO_INFORMATION));
+    }
     notify(oss.str());
 }
 
@@ -1141,6 +1158,15 @@ void AdminModel::getMetrics(std::ostringstream &oss)
     PrintDocActExpMetrics(oss, "wopi_download_duration", "milliseconds", docStats._wopiDownloadDuration);
     oss << std::endl;
     PrintDocActExpMetrics(oss, "view_load_duration", "milliseconds", docStats._viewLoadDuration);
+
+    oss << std::endl;
+    oss << "error_storage_space_low " << StorageSpaceLowException::count << "\n";
+    oss << "error_storage_connection " << StorageConnectionException::count << "\n";
+    oss << "error_bad_request " << (BadRequestException::count - BadArgumentException::count) << "\n";
+    oss << "error_bad_argument " << BadArgumentException::count << "\n";
+    oss << "error_unauthorized_request " << UnauthorizedRequestException::count << "\n";
+    oss << "error_service_unavailable " << ServiceUnavailableException::count << "\n";
+    oss << "error_parse_error " << ParseError::count << "\n";
 }
 
 std::set<pid_t> AdminModel::getDocumentPids() const

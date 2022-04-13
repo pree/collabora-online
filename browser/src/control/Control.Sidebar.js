@@ -55,9 +55,14 @@ L.Control.Sidebar = L.Control.extend({
 		if (!this.container)
 			return;
 
-		var control = this.container.querySelector('[id=\'' + data.control.id + '\']');
+		var controlId = data.control.id;
+		var control = this.container.querySelector('[id=\'' + controlId + '\']');
 		if (!control) {
-			console.warn('jsdialogupdate: not found control with id: "' + data.control.id + '"');
+			controlId = 'table-' + controlId;
+			control = this.container.querySelector('[id=\'' + controlId + '\']');
+		}
+		if (!control) {
+			window.app.console.warn('jsdialogupdate: not found control with id: "' + data.control.id + '"');
 			return;
 		}
 
@@ -76,10 +81,10 @@ L.Control.Sidebar = L.Control.extend({
 
 		var temporaryParent = L.DomUtil.create('div');
 		this.builder.build(temporaryParent, [data.control], false);
-		parent.insertBefore(temporaryParent.firstChild, control.nextSibling);
+		parent.insertBefore(temporaryParent.querySelector('[id=\'' + controlId + '\']'), control.nextSibling);
 		L.DomUtil.remove(control);
 
-		var newControl = this.container.querySelector('[id=\'' + data.control.id + '\']');
+		var newControl = this.container.querySelector('[id=\'' + controlId + '\']');
 		if (newControl)
 			newControl.scrollTop = scrollTop;
 
@@ -104,7 +109,7 @@ L.Control.Sidebar = L.Control.extend({
 		if (data.data && (data.data.control_id === 'contents' ||
 			data.data.control_id === 'Panel' ||
 			data.data.control_id === 'titlebar')) {
-			console.log('Ignored action: ' + data.data.action_type + ' for control: ' + data.data.control_id);
+			window.app.console.log('Ignored action: ' + data.data.action_type + ' for control: ' + data.data.control_id);
 			return;
 		}
 
@@ -121,7 +126,7 @@ L.Control.Sidebar = L.Control.extend({
 		this.builder.setWindowId(sidebarData.id);
 		$(this.container).empty();
 
-		if (sidebarData.action === 'close' || this.map.isPermissionReadOnly()) {
+		if (sidebarData.action === 'close' || window.app.file.disableSidebar || this.map.isPermissionReadOnly()) {
 			this.closeSidebar();
 		} else if (sidebarData.children) {
 			for (var i = sidebarData.children.length - 1; i >= 0; i--) {

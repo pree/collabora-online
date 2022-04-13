@@ -45,6 +45,7 @@ class HttpRequestTests final : public CPPUNIT_NS::TestFixture
 {
     CPPUNIT_TEST_SUITE(HttpRequestTests);
 
+    CPPUNIT_TEST(testSslHostname);
     CPPUNIT_TEST(testInvalidURI);
     CPPUNIT_TEST(testBadResponse);
     CPPUNIT_TEST(testGoodResponse);
@@ -62,6 +63,7 @@ class HttpRequestTests final : public CPPUNIT_NS::TestFixture
 
     CPPUNIT_TEST_SUITE_END();
 
+    void testSslHostname();
     void testInvalidURI();
     void testBadResponse();
     void testGoodResponse();
@@ -80,12 +82,14 @@ class HttpRequestTests final : public CPPUNIT_NS::TestFixture
     std::string _localUri;
     SocketPoll _pollServerThread;
     std::shared_ptr<ServerSocket> _socket;
+    int _port;
 
     static const int SimulatedLatencyMs = 0;
 
 public:
     HttpRequestTests()
         : _pollServerThread("HttpServerPoll")
+        , _port(0)
     {
 #if ENABLE_SSL
         Poco::Net::initializeSSL();
@@ -134,21 +138,21 @@ public:
     {
         LOG_INF("HttpRequestTests::setUp");
         std::shared_ptr<SocketFactory> factory = std::make_shared<ServerSocketFactory>();
-        int port = 9990;
-        for (int i = 0; i < 40; ++i, ++port)
+        _port = 9990;
+        for (int i = 0; i < 40; ++i, ++_port)
         {
             // Try listening on this port.
-            LOG_INF("HttpRequestTests::setUp: creating socket to listen on port " << port);
-            _socket = ServerSocket::create(ServerSocket::Type::Local, port, Socket::Type::IPv4,
+            LOG_INF("HttpRequestTests::setUp: creating socket to listen on port " << _port);
+            _socket = ServerSocket::create(ServerSocket::Type::Local, _port, Socket::Type::IPv4,
                                            _pollServerThread, factory);
             if (_socket)
                 break;
         }
 
         if (helpers::haveSsl())
-            _localUri = "https://127.0.0.1:" + std::to_string(port);
+            _localUri = "https://127.0.0.1:" + std::to_string(_port);
         else
-            _localUri = "http://127.0.0.1:" + std::to_string(port);
+            _localUri = "http://127.0.0.1:" + std::to_string(_port);
 
         _pollServerThread.startThread();
         _pollServerThread.insertNewSocket(_socket);
@@ -164,8 +168,25 @@ public:
 
 constexpr std::chrono::seconds HttpRequestTests::DefTimeoutSeconds;
 
+void HttpRequestTests::testSslHostname()
+{
+#if ENABLE_SSL
+    constexpr auto testname = __func__;
+
+    if (helpers::haveSsl())
+    {
+        const std::string host = "localhost";
+        std::shared_ptr<SslStreamSocket> socket = StreamSocket::create<SslStreamSocket>(
+            host, _port, false, std::make_shared<ServerRequestHandler>());
+        LOK_ASSERT_EQUAL(host, socket->getSslServername());
+    }
+#endif
+}
+
 void HttpRequestTests::testInvalidURI()
 {
+    constexpr auto testname = __func__;
+
     try
     {
         // Cannot create from a blank URI.
@@ -180,6 +201,8 @@ void HttpRequestTests::testInvalidURI()
 
 void HttpRequestTests::testBadResponse()
 {
+    constexpr auto testname = __func__;
+
     const std::string URL = "/inject/" + Util::bytesToHexString("\0\0xa", 2);
 
     http::Request httpRequest(URL);
@@ -198,6 +221,8 @@ void HttpRequestTests::testBadResponse()
 
 void HttpRequestTests::testGoodResponse()
 {
+    constexpr auto testname = __func__;
+
     // Inject the following response:
     // HTTP/1.1 200 OK
     // Date: Wed, 02 Jun 2021 02:30:52 GMT
@@ -238,6 +263,8 @@ void HttpRequestTests::testGoodResponse()
 
 void HttpRequestTests::testSimpleGet()
 {
+    constexpr auto testname = __func__;
+
     constexpr auto URL = "/";
 
     // Start the polling thread.
@@ -413,7 +440,8 @@ void HttpRequestTests::testChunkedGetSync_External()
 /// This is useful when we don't care about the content of the body, just that
 /// there is some content at all or not.
 static void compare(const Poco::Net::HTTPResponse& pocoResponse, const std::string& pocoBody,
-                    const http::Response& httpResponse, bool checkReasonPhrase, bool checkBody)
+                    const http::Response& httpResponse, bool checkReasonPhrase, bool checkBody,
+                    const std::string& testname)
 {
     LOK_ASSERT_EQUAL_MESSAGE("Response state", httpResponse.state(),
                              http::Response::State::Complete);
@@ -514,7 +542,7 @@ void HttpRequestTests::test500GetStatuses()
         // Poco throws exception "No message received" for 1xx Status Codes.
         if (statusCode > 100)
         {
-            compare(*pocoResponse.first, pocoResponse.second, *httpResponse, true, true);
+            compare(*pocoResponse.first, pocoResponse.second, *httpResponse, true, true, testname);
 
 #ifdef ENABLE_EXTERNAL_REGRESSION_CHECK
             // These Status Codes are not recognized by httpbin.org,
@@ -525,7 +553,7 @@ void HttpRequestTests::test500GetStatuses()
                    && statusCode != 440 && statusCode != 508 && statusCode != 511);
             const bool checkBody = (statusCode != 402 && statusCode != 418);
             compare(*pocoResponseExt.first, pocoResponseExt.second, *httpResponse,
-                    checkReasonPhrase, checkBody);
+                    checkReasonPhrase, checkBody, testname);
 #endif
         }
     }
@@ -535,6 +563,8 @@ void HttpRequestTests::test500GetStatuses()
 
 void HttpRequestTests::testSimplePost_External()
 {
+    constexpr auto testname = __func__;
+
     const std::string Host = "httpbin.org";
     const char* URL = "/post";
 
@@ -589,6 +619,8 @@ void HttpRequestTests::testSimplePost_External()
 
 void HttpRequestTests::testTimeout()
 {
+    constexpr auto testname = __func__;
+
     const char* URL = "/timeout";
 
     http::Request httpRequest(URL);
@@ -605,6 +637,8 @@ void HttpRequestTests::testTimeout()
 
 void HttpRequestTests::testOnFinished_Complete()
 {
+    constexpr auto testname = __func__;
+
     const char* URL = "/";
 
     http::Request httpRequest(URL);
@@ -628,6 +662,8 @@ void HttpRequestTests::testOnFinished_Complete()
 
 void HttpRequestTests::testOnFinished_Timeout()
 {
+    constexpr auto testname = __func__;
+
     const char* URL = "/timeout";
 
     http::Request httpRequest(URL);

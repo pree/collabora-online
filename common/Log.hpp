@@ -29,33 +29,6 @@
 
 #include "Util.hpp"
 
-inline std::ostream& operator<< (std::ostream& os, const std::chrono::system_clock::time_point& ts)
-{
-    os << Util::getIso8601FracformatTime(ts);
-    return os;
-}
-
-/// Format seconds with the units suffix until we migrate to C++20.
-inline std::ostream& operator<<(std::ostream& os, const std::chrono::seconds& s)
-{
-    os << s.count() << 's';
-    return os;
-}
-
-/// Format milliseconds with the units suffix until we migrate to C++20.
-inline std::ostream& operator<<(std::ostream& os, const std::chrono::milliseconds& ms)
-{
-    os << ms.count() << "ms";
-    return os;
-}
-
-/// Format microseconds with the units suffix until we migrate to C++20.
-inline std::ostream& operator<<(std::ostream& os, const std::chrono::microseconds& ms)
-{
-    os << ms.count() << "us";
-    return os;
-}
-
 namespace Log
 {
     /// Initialize the logging system.
@@ -106,7 +79,7 @@ namespace Log
     /// Signal safe logging
     void signalLog(const char* message);
     /// Signal log number
-    void signalLogNumber(std::size_t num);
+    void signalLogNumber(std::size_t num, int base = 10);
 
     /// The following is to write streaming logs.
     /// Log::info() << "Value: 0x" << std::hex << value
@@ -264,14 +237,17 @@ namespace Log
 #else
 // We know that when building with Xcode, __FILE__ will always be a full path, with several slashes,
 // so this will always work. We want just the file name, they are unique anyway.
-#define LOG_FILE_NAME(f) (strrchr(f, '/') + 1)
+#define LOG_FILE_NAME(f) << (strrchr(f, '/') + 1) <<
 #endif
+
+#define STRINGIFY(X) #X
+#define STRING(X) STRINGIFY(X)
 
 #define LOG_END(LOG, FILEP)                                                                        \
     do                                                                                             \
     {                                                                                              \
         if (FILEP)                                                                                 \
-            LOG << "| " << LOG_FILE_NAME(__FILE__) << ':' << __LINE__;                             \
+            LOG << "| " LOG_FILE_NAME(__FILE__) ":" STRING(__LINE__);                              \
         LOG.flush();                                                                               \
     } while (false)
 
@@ -416,5 +392,34 @@ namespace Log
             return RET;                                                                            \
         }                                                                                          \
     } while (false)
+
+/// Assert the truth of a condition, with a custom message.
+#define LOG_ASSERT_INTERNAL(condition, message, LOG)                                               \
+    do                                                                                             \
+    {                                                                                              \
+        auto&& cond##__LINE__ = !!(condition);                                                     \
+        if (!cond##__LINE__)                                                                       \
+        {                                                                                          \
+            std::ostringstream oss##__LINE__;                                                      \
+            oss##__LINE__ << message;                                                              \
+            const auto msg##__LINE__ = oss##__LINE__.str();                                        \
+            LOG("ERROR: Assertion failure: "                                                       \
+                << (msg##__LINE__.empty() ? "" : msg##__LINE__ + ". ")                             \
+                << "Condition: " << (#condition));                                                 \
+            assert(cond##__LINE__);                                                                \
+        }                                                                                          \
+    } while (false)
+
+/// Assert the truth of a condition.
+#if defined(NDEBUG)
+// In release mode assertions are logged as debug-level, since they are for developers.
+#define LOG_ASSERT_MSG(condition, message)                                                         \
+    LOG_ASSERT_INTERNAL(condition, "Precondition failed", LOG_DBG)
+#define LOG_ASSERT(condition) LOG_ASSERT_MSG(condition, "Precondition failed")
+#else
+// In debug mode assertions are errors.
+#define LOG_ASSERT_MSG(condition, message) LOG_ASSERT_INTERNAL(condition, message, LOG_ERR)
+#define LOG_ASSERT(condition) LOG_ASSERT_MSG(condition, "Precondition failed")
+#endif
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

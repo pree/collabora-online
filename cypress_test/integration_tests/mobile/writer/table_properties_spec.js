@@ -8,8 +8,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 	var testFileName = '';
 
 	function before(testFile) {
-		testFileName = testFile;
-		helper.beforeAll(testFileName, 'writer');
+		testFileName = helper.beforeAll(testFile, 'writer');
 
 		// Click on edit button
 		mobileHelper.enableEditingMobile();
@@ -24,12 +23,12 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		helper.clickOnIdle('#TableEditPanel');
 
-		cy.get('#InsertRowsBefore')
+		cy.get('.unoInsertRowsBefore')
 			.should('be.visible');
 	}
 
 	function selectFullTable() {
-		helper.clickOnIdle('#SelectTable');
+		helper.clickOnIdle('.unoSelectTable');
 
 		cy.get('#copy-paste-container table')
 			.should('exist');
@@ -40,7 +39,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#InsertRowsBefore');
+		helper.clickOnIdle('.unoInsertRowsBefore');
 
 		cy.get('.leaflet-marker-icon.table-row-resize-marker')
 			.should('have.length', 4);
@@ -63,7 +62,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#InsertRowsAfter');
+		helper.clickOnIdle('.unoInsertRowsAfter');
 
 		cy.get('.leaflet-marker-icon.table-row-resize-marker')
 			.should('have.length', 4);
@@ -86,7 +85,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#InsertColumnsBefore');
+		helper.clickOnIdle('.unoInsertColumnsBefore');
 
 		cy.get('.leaflet-marker-icon.table-column-resize-marker')
 			.should('have.length', 4);
@@ -109,7 +108,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#InsertColumnsAfter');
+		helper.clickOnIdle('.unoInsertColumnsAfter');
 
 		cy.get('.leaflet-marker-icon.table-column-resize-marker')
 			.should('have.length', 4);
@@ -132,7 +131,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#DeleteRows');
+		helper.clickOnIdle('.unoDeleteRows');
 
 		cy.get('.leaflet-marker-icon.table-row-resize-marker')
 			.should('have.length', 2);
@@ -156,7 +155,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 		// Insert column first
 		openTablePanel();
 
-		helper.clickOnIdle('#InsertColumnsBefore');
+		helper.clickOnIdle('.unoInsertColumnsBefore');
 
 		cy.get('.leaflet-marker-icon.table-column-resize-marker')
 			.should('have.length', 4);
@@ -165,7 +164,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 		mobileHelper.closeMobileWizard();
 		openTablePanel();
 
-		helper.clickOnIdle('#DeleteColumns');
+		helper.clickOnIdle('.unoDeleteColumns');
 
 		cy.get('.leaflet-marker-icon.table-column-resize-marker')
 			.should('have.length', 3);
@@ -176,7 +175,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#DeleteTable');
+		helper.clickOnIdle('.unoDeleteTable');
 
 		cy.get('.leaflet-marker-icon.table-column-resize-marker')
 			.should('not.exist');
@@ -205,7 +204,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#MergeCells');
+		helper.clickOnIdle('.unoMergeCells');
 
 		// Cursor was in the second row originally.
 		// With merging two rows, the cursor is moved into the first row.
@@ -267,7 +266,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#SetMinimalRowHeight');
+		helper.clickOnIdle('.unoSetMinimalRowHeight');
 
 		selectFullTable();
 
@@ -279,30 +278,27 @@ describe('Change table properties / layout via mobile wizard.', function() {
 	it('Set optimal row height.', function() {
 		before('table_with_text.odt');
 
-		// Select full table (3x2)
-		helper.moveCursor('down', 'shift');
-		helper.moveCursor('down', 'shift');
-		helper.moveCursor('right', 'shift');
-
 		openTablePanel();
-
-		helper.clickOnIdle('#SetOptimalRowHeight');
 
 		selectFullTable();
 
+		cy.get('#copy-paste-container tr:nth-of-type(1) td:nth-of-type(1)')
+			.should('have.attr', 'height', '33');
+		cy.get('#copy-paste-container tr:nth-of-type(2) td:nth-of-type(1)')
+			.should('not.have.attr', 'height');
+		cy.get('#copy-paste-container tr:nth-of-type(3) td:nth-of-type(1)')
+			.should('not.have.attr', 'height');
+
+		helper.clickOnIdle('.unoSetOptimalRowHeight');
+
+		selectFullTable();
+
+		cy.get('#copy-paste-container table td')
+			.should('have.length', 6);
+
 		// Check new row height
-		cy.get('#copy-paste-container td')
-			.should(function(items) {
-				expect(items).to.have.lengthOf(6);
-				for (var i = 0; i < items.length; i++) {
-					if (i == 0 || i == 4)
-						expect(items[i]).have.attr('height', '33');
-					else if (i == 2)
-						expect(items[i]).have.attr('height', '34');
-					else
-						expect(items[i]).not.have.attr('height');
-				}
-			});
+		cy.get('#copy-paste-container td:nth-of-type(2n+1)')
+			.should('have.attr', 'height');
 	});
 
 	it('Distribute rows.', function() {
@@ -315,7 +311,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#DistributeRows');
+		helper.clickOnIdle('.unoDistributeRows');
 
 		selectFullTable();
 
@@ -344,7 +340,7 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#SetMinimalColumnWidth');
+		helper.clickOnIdle('.unoSetMinimalColumnWidth');
 
 		selectFullTable();
 
@@ -362,7 +358,12 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#SetOptimalColumnWidth');
+		helper.clickOnIdle('.unoEntireRow');
+
+		cy.get('#copy-paste-container table')
+			.should('exist');
+
+		helper.clickOnIdle('.unoSetOptimalColumnWidth');
 
 		selectFullTable();
 
@@ -382,11 +383,13 @@ describe('Change table properties / layout via mobile wizard.', function() {
 
 		openTablePanel();
 
-		helper.clickOnIdle('#DistributeColumns');
+		helper.clickOnIdle('.unoDistributeColumns');
 
 		selectFullTable();
 
 		cy.get('#copy-paste-container td')
 			.should('have.attr', 'width', '323');
 	});
+	//TODO: add split cell test
+	//bug: https://github.com/CollaboraOnline/online/issues/3962
 });

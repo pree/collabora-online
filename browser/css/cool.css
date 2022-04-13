@@ -12,7 +12,7 @@
 	--docs--pre-font: 'Consolas', 'Menlo', 'Lucida Console', 'Courier New', monospace;
 
 	/* Shared color for cell and selection border */
-	--cell-cursor-selection-border-color: #0074e8;
+	--cell-cursor-selection-border-color: var(--color-primary);
 }
 /* clip technique: hide visually but keep it available to screen readers */
 .visuallyhidden {
@@ -30,7 +30,7 @@
 	position: fixed;
 }
 #document-container {
-	background: #DFDFDF;
+	background-color: var(--color-main-background);
 	position: relative;
 	margin: 0;
 	padding: 0;
@@ -149,7 +149,7 @@
 }
 
 .table-select-marker:hover::before {
-	border-color: #1C99E0;
+	border-color: var(--color-primary);
 }
 
 .table-move-marker {
@@ -167,24 +167,23 @@ body {
 	margin: 0;
 	overflow: hidden;
 	overscroll-behavior-y: none; /* disable the pull to reload gesture */
-	background: #ffffff;
+	background: var(--color-main-background);
 	touch-action: none;
 	line-height: normal;
 }
 
 #presentation-controls-wrapper {
-	background: #dfdfdf;
+	background: var(--color-main-background);
 	position: relative;
-	border-top: 1px solid var(--gray-color);
+	border-top: 1px solid var(--color-border);
 	display: none;
 }
 
 #sidebar-dock-wrapper {
 	display: none;
-	background: #fff;
+	background: var(--color-main-background);
 	position: relative;
-	border-top: 1px solid var(--gray-color);
-	border-left: 1px solid var(--gray-color);
+	border-left: 1px solid var(--color-border);
 	overflow: hidden;
 	z-index: 990;
 }
@@ -200,15 +199,30 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 	overflow-x: hidden;
 	overflow-y: auto;
 	z-index: 1200;
+	scrollbar-width: auto;
+	scrollbar-color: var(--color-border) transparent;
+}
+
+#sidebar-panel::-webkit-scrollbar {
+	width: 8px;
+}
+
+#sidebar-panel::-webkit-scrollbar-thumb {
+	background-color: var(--color-border);
 }
 
 #toolbar-wrapper {
 	table-layout: fixed;
-	border-collapse: collapse;
+	border-collapse: separate;
+	border-spacing: 0;
 	width: 100%;
 	border-top: none;
 	z-index: 11 !important;
-	border-bottom: 1px solid var(--gray-color);
+	border-bottom: 1px solid var(--color-border);
+	background-color: var(--color-background-lighter);
+}
+#toolbar-wrapper:not(.mobile) {
+	padding: 3px 0;
 }
 
 #toolbar-logo {
@@ -220,13 +234,18 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 	width: 0;
 }
 
+/* Hide back btn except on mobile phones */
+#toolbar-mobile-back {
+	width: 0;
+}
+
 #mobile-edit-button {
 	position: absolute;
 	width: 56px;
 	height: 56px;
 	right: 16px;
 	bottom: 16px;
-	background-color: #0b87e7;
+	background-color: var(--color-primary);
 	border-radius: 50%;
 	box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
 	z-index: 1001;
@@ -240,7 +259,7 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 
 #mobile-edit-button-image {
 	position: relative;
-	left: 16px;
+	margin-inline-start: 16px;
 	top: 16px;
 	width: 24px;
 	height: 24px;
@@ -257,8 +276,21 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 
 .cool-font {
 	font-family: var(--cool-font) !important;
-	font-size: 12px !important;
+	font-size: var(--default-font-size) !important;
 	font-weight: normal !important;
+	padding: 3px 5px 3px 3px;
+	color: var(--color-main-text);
+}
+
+#search-input {
+	height: 22px;
+	background: var(--color-background-lighter);
+}
+#search-input:hover {
+	border: 1px solid var(--color-border-darker) !important;
+}
+#search-input::placeholder {
+	color: var(--color-main-text);
 }
 
 .cool-character {
@@ -269,10 +301,6 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 
 .cool-character td {
 	width: 20px;
-}
-
-.annotation-button {
-	margin-right: 10px;
 }
 
 .annotation-marker {
@@ -298,8 +326,8 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 }
 
 .cool-context-down {
-	border: 1px solid #aaaaaa;
-	background-color: #dddddd;
+	border: 1px solid var(--color-border-dark);
+	background-color: var(--color-background-dark);
 }
 
 .cool-mobile-input {
@@ -313,23 +341,23 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 .context-menu-icon::before {
 	font-family: var(--cool-font) !important;
 	content: '\2713';
-	color: #000 !important;
+	color: var(--color-main-text) !important;
 }
 .context-menu-icon-lo-checkmark:before {
 	content: '\2713';
 }
 
 .context-menu-hover {
-	background-color: #0b87e7 !important;
-	color: #fff !important;
+	background-color: var(--color-background-lighter) !important;
+	color: var(--color-text-darker) !important;
 }
 
 .context-menu-hover > span > a {
-	color: #fff;
+	color: var(--color-text-darker);
 }
 
 .context-menu-submenu.context-menu-hover:after {
-	border-color: transparent transparent transparent #fff;
+	border-color: transparent transparent transparent var(--color-background-lighter);
 }
 
 .cool-annotation {
@@ -346,9 +374,13 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 	position: absolute;
 	left: 24px;
 }
-.cool-annotation.annotation-active .cool-annotation-collapsed{
+.cool-annotation.annotation-active:not(.rtl) .cool-annotation-collapsed{
 	position: absolute;
 	left: 0 !important;
+}
+.cool-annotation.annotation-active.rtl .cool-annotation-collapsed{
+	position: absolute;
+	left: 48px !important;
 }
 
 #document-container > .cool-annotation:hover .cool-annotation-collapsed{
@@ -359,70 +391,73 @@ nav.spreadsheet-color-indicator ~ #sidebar-dock-wrapper {
 .cool-annotation-content-wrapper, .cool-annotation-redline-content-wrapper {
 	padding: 8px;
 	font-family: var(--cool-font) !important;
-	font-size: 13px;
+	font-size: var(--default-font-size);
 	text-align: left;
-	background-color: #EFEFEF; /* Fallback color for IE11. */
-	background-color: var(--gray-light-bg-color);
-	box-shadow: 0px 3px 6px rgba(0,0,0,0.2);
-	color: #222;
+	background-color: var(--color-background-lighter);
+	box-shadow: 0 0 3px var(--color-box-shadow);
+	color: var(--color-main-text);
 	border: none;
-	border-radius: 2px;
-	width: 240px;
+	border-radius: var(--border-radius);
+	width: var(--annotation-input-size);
+}
+.cool-annotation-content-wrapper:hover, .cool-annotation-redline-content-wrapper:hover {
+	background-color: var(--color-background-dark);
+	color: var(--color-text-dark);
 }
 
-.annotation-active .cool-annotation-content-wrapper {
-	min-width: 240px;
-	width: auto;
+.annotation-active.modify-annotation-container .cool-annotation-content-wrapper,
+.annotation-active.reply-annotation-container .cool-annotation-content-wrapper,
+.cool-annotation-collapsed.modalpopup {
+	width: var(--annotation-input-size);
 }
 
 .cool-annotation-content {
 	margin: 3px;
 	line-height: 1.4;
+	max-height: var(--annotation-input-size);
+	overflow: auto;
 }
 
 .cool-annotation-reply-count-collapsed {
-	background-color: var(--gray-light-txt--color);
-	color: white;
+	background-color: var(--color-primary);
+	color: var(--color-primary-text);
 	font-weight: bold;
-	font-size: 10pt;
+	font-family: var(--cool-font);
+	font-size: 20px;
+	border: 1px solid var(--color-primary);
 	border-radius: 50%;
 	z-index: 10;
 	position: absolute;
-	width: 20px;
-	height: 20px;
-	left: 24px;
-	top: -6px;
+	width: 24px;
+	height: 24px;
+	left: 26px;
+	top: -10px;
 }
 
-nav.text-color-indicator ~ #main-document-content .cool-annotation-reply-count-collapsed {
-	background: rgb(var(--blue1-txt-primary-color));
-}
-nav.spreadsheet-color-indicator ~ #main-document-content .cool-annotation-reply-count-collapsed {
-	background: rgb(var(--green0-txt-primary-color));
-}
-nav.presentation-color-indicator ~ #main-document-content .cool-annotation-reply-count-collapsed {
-	background: rgb(var(--orange1-txt-primary-color));
-}
-nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-count-collapsed {
-	background: rgb(var(--yellow0-txt-primary-color));
+#main-document-content {
+	z-index: 0;
 }
 
 .cool-annotation-collapsed {
-	background: white;
+	background: var(--color-background-lighter);
 	border-radius: 50%;
 	width: 36px;
 	height: 36px;
-	box-shadow: 0 0 1px 0 rgba(0,0,0,0.5), 0 0 8px 2px rgba(0,0,0,0.1);
+	box-shadow: 0 0 3px 5px var(--color-background-lighter), 0 0 1px 5px var(--color-box-shadow);
 }
 
 .annotation-active .cool-annotation-collapsed {
-	box-shadow: 0 0 3px 5px white, 0 0 1px 5px grey;
+	box-shadow: 0 0 3px 5px var(--color-background-lighter), 0 0 1px 5px var(--color-box-shadow);
 }
 
 .jsdialog-container.cool-annotation-collapsed.modalpopup {
 	border-radius: 8px !important;
-	border: 1px solid var(--gray-color) !important;
-	background: white !important;
+	border: 1px solid var(--color-border) !important;
+	background: var(--color-background-lighter) !important;
+}
+
+#mobile-wizard-popup {
+	background-color: var(--color-background-lighter) !important;
 }
 
 .jsdialog-container.cool-annotation-collapsed.modalpopup .lokdialog.ui-dialog-content {
@@ -444,9 +479,9 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 .jsdialog-container.cool-annotation-collapsed.modalpopup .cool-annotation-content-wrapper {
 	box-shadow: none;
 	border-width: 0px 0px 1px !important;
-	border-bottom: 1px solid var(--gray-light-bg-color) !important;
+	border-bottom: 1px solid var(--color-border) !important;
 	border-radius: 0 !important;
-	background: white;
+	background: var(--color-background-lighter);
 }
 
 .jsdialog-container.cool-annotation-collapsed.modalpopup [id^='comment-container-']:last-child > .cool-annotation-content-wrapper{
@@ -476,7 +511,7 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 }
 
 .cool-annotation-content-resolved {
-	color: green;
+	color: var(--color-success);
 }
 
 .cool-annotation-edit {
@@ -486,13 +521,17 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 
 .cool-annotation-textarea {
 	font-family: var(--cool-font) !important;
-	font-size: 13px;
-	border: 1px solid #c8c8c8;
-	background-color: white;
+	font-size: var(--default-font-size);
+	border: 1px solid var(--color-border);
+	background-color: var(--color-background-dark);
 	overflow-x: hidden;
 	height: 50px;
 	width: 100%;
 	box-sizing: border-box;
+}
+
+#new-mobile-comment-input-area.cool-annotation-textarea {
+	height: var(--annotation-input-size);
 }
 
 .cool-div-layer {
@@ -509,12 +548,14 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 }
 
 .cool-annotation-img {
+	box-sizing: content-box !important;
 	max-width: 32px;
 	display: inline-block;
 	border: solid 2px;
 	border-radius: 50%;
 	height: 32px;
 	width: 32px;
+	padding: 0;
 }
 .cool-annotation-img .avatar-img{
 	border: none;
@@ -578,11 +619,11 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 }
 
 .cool-annotation-menu:hover, .cool-annotation-menu-redline:hover, .cool-redline-accept-button:hover, .cool-redline-reject-button:hover {
-	border: 1px solid darkgrey;
+	border: 1px solid var(--color-border-darker);
 }
 
 .cool-annotation-date {
-	font-size: 11px;
+	font-size: var(--default-font-size);
 }
 
 .cool-annotation-menubar {
@@ -610,7 +651,7 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 	left: 100%;
 	white-space: nowrap;
 	opacity: 0;
-	border-color: #2a2a2a;
+	border-color: var(--color-border-darker);
 	visibility: hidden;
 }
 .cool-ruler-left[data-title]:after,
@@ -628,7 +669,7 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 
 .cool-bar {
 	box-shadow: 0 1px 5px rgba(0,0,0,0.65);
-	border-radius: 4px;
+	border-radius: var(--border-radius);
 	display: inline-block;
 	margin: 3px;
 	vertical-align: middle;
@@ -636,36 +677,36 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 
 .cool-bar a,
 .cool-bar a:hover {
-	background-color: #fff;
-	border-bottom: 1px solid #ccc;
+	background-color: var(--color-background-lighter);
+	border-bottom: 1px solid var(--color-border);
 	width: 30px;
 	height: 30px;
 	line-height: 30px;
 	display: block;
 	text-align: center;
 	text-decoration: none;
-	color: black;
+	color: var(--color-main-text);
 }
 
 .cool-bar a:hover {
-	background-color: #f4f4f4;
+	background-color: var(--color-background-darker);
 }
 
 .cool-bar a:first-child {
-	border-top-left-radius: 4px;
-	border-top-right-radius: 4px;
+	border-top-left-radius: var(--border-radius);
+	border-top-right-radius: var(--border-radius);
 }
 
 .cool-bar a:last-child {
-	border-bottom-left-radius: 4px;
-	border-bottom-right-radius: 4px;
+	border-bottom-left-radius: var(--border-radius);
+	border-bottom-right-radius: var(--border-radius);
 	border-bottom: none;
 }
 
 .cool-bar a.leaflet-disabled {
 	cursor: default;
-	background-color: #f4f4f4;
-	color: #bbb;
+	background-color: var(--color-background-lighter);
+	color: var(--color-text-lighter);
 }
 
 .cool-bar a {
@@ -698,12 +739,13 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 }
 
 .lokdialog_container.ui-dialog.ui-widget-content.jsdialog-container {
-	background: white !important;
+	background: var(--color-background-darker) !important;
 }
 
 .lokdialog.ui-dialog-content.ui-widget-content {
 	padding: 0px;
 	overflow: auto;
+	border-radius: calc(var(--border-radius)/2);
 }
 
 .lokdialog_canvas {
@@ -730,21 +772,21 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 	border: 1px solid;
 	position: absolute;
 	height: 100%;
-	border-radius: 2px;
+	border-radius: var(--border-radius);
 }
 
 .form-field-button {
-	background: #FFFFFF;
+	background-color: var(--color-background-lighter);
 	position: absolute;
 	border: 1px solid;
 	height: 100%;
 	box-sizing: content-box;
 	padding: 0px;
-	border-radius: 2px;
+	border-radius: var(--border-radius);
 }
 
 .form-field-button:hover, .form-field-button:focus {
-	background: #DDDDDD;
+	background-color: var(--color-background-dark);
 	outline: 0;
 }
 
@@ -756,7 +798,7 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 	position: absolute;
 	border: 1px solid;
 	cursor: pointer;
-	background: #ffffff;
+	background: var(--color-background-lighter);
 }
 
 .drop-down-field-list-item {
@@ -766,10 +808,10 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 }
 
 .drop-down-field-list-item.selected {
-	background: #99CCFF;
+	background-color: var(--color-primary-lighter);
 }
 .drop-down-field-list-item:hover {
-	background: #0b87e7;
+	background-color: var(--color-primary);
 }
 
 .word-wrap-for-vex-dialog {
@@ -803,7 +845,7 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 	border-style: solid; /* required for ie11 */
 	display: none; /* prevent cypress failure */
 
-	color: #e0e0e0; /* color */
+	color: var(--color-background-dark); /* color */
 	opacity: 1; /* opacity */
 	border-top-width: 3px; /* weight */
 }
@@ -821,6 +863,10 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 	align-items: stretch;
 }
 
+#about-dialog-container .spacer {
+	height: 54px;
+}
+
 #about-dialog-logos {
 	flex-grow: 1;
 	flex-flow: column nowrap;
@@ -829,6 +875,7 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 
 #about-dialog-container *, #about-dialog-header * {
 	display: flex;
+	flex-wrap: wrap;
 }
 
 #integrator-logo {
@@ -847,7 +894,7 @@ nav.drawing-color-indicator ~ #main-document-content .cool-annotation-reply-coun
 }
 #about-dialog-info-container {
 	align-items: center;
-	justify-content: left;
+	justify-content: flex-start;
 	flex-grow: 1;
 }
 #about-dialog-info {

@@ -147,6 +147,8 @@ L.Control.Ruler = L.Control.extend({
 
 	_initLayout: function() {
 		this._rWrapper = L.DomUtil.create('div', 'cool-ruler leaflet-bar leaflet-control leaflet-control-custom');
+		this._rWrapper.style.visibility = 'hidden';
+
 		// We start it hidden rather than not initialzing at all.
 		// It is due to rulerupdate command that comes from LOK.
 		// If we delay its initialization, we can't calculate its margins and have to wait for another rulerupdate message to arrive.
@@ -191,7 +193,7 @@ L.Control.Ruler = L.Control.extend({
 	},
 
 	_updateOptions: function(obj) {
-		// console.log('===> _updateOptions');
+		// window.app.console.log('===> _updateOptions');
 		// Note that the values for margin1, margin2 and leftOffset are not in any sane
 		// units. See the comment in SwCommentRuler::CreateJsonNotification(). The values
 		// are pixels for some virtual device in core, not related to the actual device this
@@ -209,6 +211,8 @@ L.Control.Ruler = L.Control.extend({
 		// this.options.unit = obj['unit'].trim();
 
 		this._updateBreakPoints();
+
+		this._rWrapper.style.visibility = '';
 	},
 
 	_updateParagraphIndentations: function() {
@@ -410,7 +414,7 @@ L.Control.Ruler = L.Control.extend({
 
 		var rulerOffset = mapPaneXTranslate + firstTileXTranslate + tileContainerXTranslate + (this.options.tileMargin * scale);
 
-		this._rFace.style.marginLeft = rulerOffset + 'px';
+		this._rFace.style.marginInlineStart = rulerOffset + 'px';
 
 		this.rulerOffset = rulerOffset; // Needed on different parts too..
 		this._updateParagraphIndentations();
@@ -637,7 +641,7 @@ L.Control.Ruler = L.Control.extend({
 	},
 
 	_initiateTabstopDrag: function(event) {
-		// console.log('===> _initiateTabstopDrag ' + event.type);
+		// window.app.console.log('===> _initiateTabstopDrag ' + event.type);
 
 		var tabstopContainer = null;
 		var pointX = null;
@@ -708,14 +712,14 @@ L.Control.Ruler = L.Control.extend({
 		if (marker === null)
 			return;
 
-		//console.log('===> _moveTabstop ' + event.type);
+		//window.app.console.log('===> _moveTabstop ' + event.type);
 
 		var pixelDiff = pointX - tabstopContainer.tabStopInitialPosiiton;
 		marker.style.left = (marker.tabStopLocation.left + pixelDiff) + 'px';
 	},
 
 	_endTabstopDrag: function(event) {
-		//console.log('===> _endTabstopDrag ' + event.type);
+		//window.app.console.log('===> _endTabstopDrag ' + event.type);
 
 		var tabstopContainer = null;
 		var pointX = null;

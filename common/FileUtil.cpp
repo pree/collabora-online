@@ -81,7 +81,7 @@ namespace FileUtil
 {
     std::string createRandomDir(const std::string& path)
     {
-        const std::string name = Util::rng::getFilename(64);
+        std::string name = Util::rng::getFilename(64);
 #if HAVE_STD_FILESYSTEM
         filesystem::create_directory(path + '/' + name);
 #else
@@ -279,11 +279,15 @@ namespace FileUtil
                 nftw(path.c_str(), nftw_cb, 128, FTW_DEPTH | FTW_PHYS);
             }
         }
-        catch (const std::exception&e)
+        catch (const std::exception& e)
         {
-            // Already removed or we don't care about failures.
-            LOG_ERR("Failed to remove [" << path << "] " << (recursive ? "recursively: " : "only: ")
-                                         << e.what());
+            // Don't complain if already non-existant.
+            if (FileUtil::Stat(path).exists())
+            {
+                // Error only if it still exists.
+                LOG_ERR("Failed to remove ["
+                        << path << "] " << (recursive ? "recursively: " : "only: ") << e.what());
+            }
         }
 #endif
     }
@@ -321,7 +325,7 @@ namespace FileUtil
         if (access(path, W_OK) == 0)
             return true;
 
-        LOG_ERR("Cannot access path [" << path << "]: " << strerror(errno));
+        LOG_INF("No write access to path [" << path << "]: " << strerror(errno));
         return false;
     }
 
@@ -497,9 +501,9 @@ namespace FileUtil
 
         // we should be able to run just OK with 5GB for production or 1GB for development
 #if ENABLE_DEBUG
-        const int64_t gb(1);
+        constexpr int64_t gb(1);
 #else
-        const int64_t gb(5);
+        constexpr int64_t gb(5);
 #endif
         constexpr int64_t ENOUGH_SPACE = gb*1024*1024*1024;
 

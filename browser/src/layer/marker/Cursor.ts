@@ -66,7 +66,7 @@ class Cursor {
 	}
 
 	setMouseCursor() {
-		if (this.container.querySelector('.blinking-cursor') !== null) {
+		if (this.domAttached && this.container && this.container.querySelector('.blinking-cursor') !== null) {
 			if (this.map._docLayer._docType === 'presentation') {
 				$('.leaflet-interactive').css('cursor', 'text');
 			} else {
@@ -97,15 +97,19 @@ class Cursor {
 		return this.domAttached;
 	}
 
+	addCursorClass(visible: boolean) {
+		if (visible)
+			$('.leaflet-cursor').removeClass('blinking-cursor-hidden');
+		else
+			$('.leaflet-cursor').addClass('blinking-cursor-hidden');
+	}
+
 	isVisible(): boolean {
 		return this.visible;
 	}
 
 	onFocusBlur(ev: FocusEvent) {
-		if (ev.type === 'blur')
-			$('.leaflet-cursor').addClass('blinking-cursor-hidden');
-		else
-			$('.leaflet-cursor').removeClass('blinking-cursor-hidden');
+		this.addCursorClass(ev.type !== 'blur');
 	}
 
 	// position and size should be in core pixels.
@@ -161,6 +165,7 @@ class Cursor {
 			if (!paneBounds.contains(cursorBounds)) {
 				this.container.style.visibility = 'hidden';
 				this.visible = false;
+				this.addCursorClass(this.visible);
 				this.showCursorHeader();
 				return;
 			}
@@ -168,6 +173,7 @@ class Cursor {
 
 		this.container.style.visibility = 'visible';
 		this.visible = true;
+		this.addCursorClass(this.visible);
 
 		var tileSectionPos = this.map._docLayer.getTileSectionPos();
 		// Compute tile-section offset in css pixels.
@@ -179,16 +185,17 @@ class Cursor {
 	}
 
 	setOpacity(opacity: number) {
-		if (this.container) {
+		if (this.container)
 			L.DomUtil.setOpacity(this.cursor, opacity);
-		}
+		if (this.cursorHeader)
+			L.DomUtil.setOpacity(this.cursorHeader, opacity);
 	}
 
 	// Shows cursor header if cursor is in visible area.
 	showCursorHeader() {
 		if (this.cursorHeader) {
-			if (!this.visible) {
-				L.DomUtil.setStyle(this.cursorHeader, 'visibility', 'hidden');
+			if (!this.visible || this.map._docLayer._isZooming) {
+				this.hideCursorHeader();
 				return;
 			}
 
@@ -196,9 +203,14 @@ class Cursor {
 
 			clearTimeout(this.blinkTimeout);
 			this.blinkTimeout = setTimeout(L.bind(function () {
-				L.DomUtil.setStyle(this.cursorHeader, 'visibility', 'hidden');
+				this.hideCursorHeader();
 			}, this), this.headerTimeout);
 		}
+	}
+
+	hideCursorHeader() {
+		if (this.cursorHeader)
+			L.DomUtil.setStyle(this.cursorHeader, 'visibility', 'hidden');
 	}
 
 	private initLayout() {
@@ -228,9 +240,17 @@ class Cursor {
 			.disableScrollPropagation(this.container);
 	}
 
+	private transformX(xpos: number): number {
+		if (!this.map._docLayer.isCalcRTL()) {
+			return xpos;
+		}
+
+		return this.map._size.x - xpos;
+	}
+
 	private setPos(pos: cool.Point) {
 		this.container.style.top = pos.y + 'px';
-		this.container.style.left = pos.x + 'px';
+		this.container.style.left = this.transformX(pos.x) + 'px';
 		this.container.style.zIndex = this.zIndex + '';
 		// Restart blinking animation
 		if (this.blink) {

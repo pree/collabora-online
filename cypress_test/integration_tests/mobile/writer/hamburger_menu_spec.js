@@ -1,14 +1,15 @@
-/* global describe it cy beforeEach require afterEach expect */
+/* global describe it cy Cypress beforeEach require afterEach expect */
 
 var helper = require('../../common/helper');
 var mobileHelper = require('../../common/mobile_helper');
 var writerHelper = require('../../common/writer_helper');
 
 describe('Trigger hamburger menu options.', function() {
-	var testFileName = 'hamburger_menu.odt';
+	var origTestFileName = 'hamburger_menu.odt';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'writer');
+		testFileName = helper.beforeAll(origTestFileName, 'writer');
 
 		mobileHelper.enableEditingMobile();
 	});
@@ -68,8 +69,13 @@ describe('Trigger hamburger menu options.', function() {
 
 		mobileHelper.selectHamburgerMenuItem(['File', 'Save']);
 
+		//reset get to original function
+		Cypress.Commands.overwrite('get', function(originalFn, selector, options) {
+			return originalFn(selector, options);
+		});
+
 		// Reopen the document and check content.
-		helper.beforeAll(testFileName, 'writer', true);
+		helper.reload(testFileName, 'writer', true);
 
 		mobileHelper.enableEditingMobile();
 
@@ -80,14 +86,17 @@ describe('Trigger hamburger menu options.', function() {
 
 	it('Print', function() {
 		// A new window should be opened with the PDF.
-		cy.window()
+		helper.getCoolFrameWindow()
 			.then(function(win) {
 				cy.stub(win, 'open');
 			});
 
 		mobileHelper.selectHamburgerMenuItem(['File', 'Print']);
 
-		cy.window().its('open').should('be.called');
+		helper.getCoolFrameWindow()
+			.then(function(win) {
+				cy.wrap(win).its('open').should('be.called');
+			});
 	});
 
 	it('Download as PDF', function() {
@@ -164,76 +173,6 @@ describe('Trigger hamburger menu options.', function() {
 			.should('contain.text', 'q');
 	});
 
-	it.skip('Repair.', function() {
-		// First change
-		helper.typeIntoDocument('q');
-
-		// Second change
-		helper.typeIntoDocument('w');
-
-		writerHelper.selectAllTextOfDoc();
-
-		cy.get('#copy-paste-container p')
-			.should('contain.text', 'qw');
-
-		// Undo
-		mobileHelper.selectHamburgerMenuItem(['Edit', 'Undo']);
-
-		writerHelper.selectAllTextOfDoc();
-
-		cy.get('#copy-paste-container p')
-			.should('not.contain.text', 'w');
-
-		// Revert one undo step via Repair
-		mobileHelper.selectHamburgerMenuItem(['Edit', 'Repair']);
-
-		cy.get('.leaflet-popup-content')
-			.should('be.visible');
-
-		cy.get('.leaflet-popup-content table tr:nth-of-type(2)')
-			.should('contain.text', 'Redo');
-
-		cy.get('.leaflet-popup-content table tr:nth-of-type(3)')
-			.should('contain.text', 'Undo');
-
-		cy.get('.leaflet-popup-content table tr:nth-of-type(2)')
-			.click();
-
-		cy.get('.leaflet-popup-content input[value=\'Jump to state\']')
-			.click();
-
-		writerHelper.selectAllTextOfDoc();
-
-		cy.get('#copy-paste-container p')
-			.should('contain.text', 'qw');
-
-		// Revert to the initial state via Repair
-		mobileHelper.selectHamburgerMenuItem(['Edit', 'Repair']);
-
-		cy.get('.leaflet-popup-content')
-			.should('be.visible');
-
-		cy.get('.leaflet-popup-content table tr:nth-of-type(2)')
-			.should('contain.text', 'Undo');
-
-		cy.get('.leaflet-popup-content table tr:nth-of-type(3)')
-			.should('contain.text', 'Undo');
-
-		cy.get('.leaflet-popup-content table tr:nth-of-type(3)')
-			.click();
-
-		cy.get('.leaflet-popup-content input[value=\'Jump to state\']')
-			.click();
-
-		writerHelper.selectAllTextOfDoc();
-
-		cy.get('#copy-paste-container p')
-			.should('not.contain.text', 'q');
-
-		cy.get('#copy-paste-container p')
-			.should('not.contain.text', 'w');
-	});
-
 	it('Cut.', function() {
 		writerHelper.selectAllTextOfDoc();
 
@@ -247,7 +186,7 @@ describe('Trigger hamburger menu options.', function() {
 		cy.get('.vex-dialog-message')
 			.should('have.text', 'Please use the copy/paste buttons on your on-screen keyboard.');
 
-		cy.get('.vex-dialog-button-primary.vex-dialog-button.vex-first')
+		cy.get('.vex-dialog-button-primary.vex-dialog-button')
 			.click();
 
 		cy.get('.vex-dialog-form')
@@ -287,7 +226,7 @@ describe('Trigger hamburger menu options.', function() {
 		cy.get('.vex-dialog-message')
 			.should('have.text', 'Please use the copy/paste buttons on your on-screen keyboard.');
 
-		cy.get('.vex-dialog-button-primary.vex-dialog-button.vex-first')
+		cy.get('.vex-dialog-button-primary.vex-dialog-button')
 			.click();
 
 		cy.get('.vex-dialog-form')

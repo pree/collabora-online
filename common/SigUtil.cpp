@@ -30,6 +30,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <array>
 
 #include <Socket.hpp>
 #include "Common.hpp"
@@ -40,6 +41,10 @@ static std::atomic<bool> TerminationFlag(false);
 static std::atomic<bool> DumpGlobalState(false);
 static std::atomic<bool> ShutdownRequestFlag(false);
 #endif
+
+static size_t ActivityStringIndex = 0;
+static std::array<std::string,8> ActivityStrings;
+static bool UnattendedRun = false;
 
 namespace SigUtil
 {
@@ -60,13 +65,19 @@ namespace SigUtil
 
     void setTerminationFlag()
     {
+        // Set the forced-termination flag.
         TerminationFlag = true;
+#if !MOBILEAPP
+        // And request shutting down and wake-up the thread.
+        requestShutdown();
+#endif
     }
 
 #if MOBILEAPP
-    void resetTerminationFlag()
+    void resetTerminationFlags()
     {
         TerminationFlag = false;
+        ShutdownRequestFlag = false;
     }
 #endif
 #endif // !IOS
@@ -82,13 +93,15 @@ namespace SigUtil
 #endif
     }
 
-    UnoCommandsDumperFn dumpUnoCommandsInfoFn = nullptr;
-
-    void registerUnoCommandInfoHandler(UnoCommandsDumperFn dumpUnoCommandsInfo)
+    void addActivity(const std::string &message)
     {
-        dumpUnoCommandsInfoFn = dumpUnoCommandsInfo;
+        ActivityStrings[ActivityStringIndex++ % ActivityStrings.size()] = message;
     }
 
+    void setUnattended()
+    {
+        UnattendedRun = true;
+    }
 
 #if !MOBILEAPP
     /// This traps the signal-handler so we don't _Exit
@@ -241,7 +254,7 @@ namespace SigUtil
     static char FatalGdbString[256] = { '\0' };
 
     static
-    void handleFatalSignal(const int signal)
+    void handleFatalSignal(const int signal, siginfo_t *info, void * /* uctxt */)
     {
         SigHandlerTrap guard;
         bool bReEntered = !guard.isExclusive();
@@ -254,10 +267,26 @@ namespace SigUtil
         else
             Log::signalLog(" Fatal signal received: ");
         Log::signalLog(signalName(signal));
-
-        if (dumpUnoCommandsInfoFn != nullptr)
+        if (info)
         {
-            dumpUnoCommandsInfoFn();
+            Log::signalLog(" code: ");
+            Log::signalLogNumber(info->si_code);
+            Log::signalLog(" for address: 0x");
+            Log::signalLogNumber((size_t)info->si_addr, 16);
+        }
+        Log::signalLog("\n");
+
+        Log::signalLog("Recent activity:\n");
+        for (size_t i = 0; i < ActivityStrings.size(); ++i)
+        {
+            size_t idx = (ActivityStringIndex + i) % ActivityStrings.size();
+            if (!ActivityStrings[idx].empty())
+            {
+                // no plausible impl. will heap allocate in c_str.
+                Log::signalLog("\t");
+                Log::signalLog(ActivityStrings[idx].c_str());
+                Log::signalLog("\n");
+            }
         }
 
         struct sigaction action;
@@ -302,12 +331,23 @@ namespace SigUtil
         if (std::getenv("COOL_DEBUG"))
 #endif
         {
-            Log::signalLog(FatalGdbString);
-            LOG_ERR("Sleeping 60s to allow debugging: attach " << getpid());
-            std::cerr << "Sleeping 60s to allow debugging: attach " << getpid() << "\n";
-            sleep(60);
-            LOG_ERR("Finished sleeping to allow debugging of: " << getpid());
-            std::cerr << "Finished sleeping to allow debugging of: " << getpid() << "\n";
+            if (UnattendedRun)
+            {
+                static constexpr auto msg =
+                    "Crashed in unattended run and won't wait for debugger. Re-run without "
+                    "--unattended to attach a debugger.";
+                LOG_ERR(msg);
+                std::cerr << msg << '\n';
+            }
+            else
+            {
+                Log::signalLog(FatalGdbString);
+                LOG_ERR("Sleeping 60s to allow debugging: attach " << getpid());
+                std::cerr << "Sleeping 60s to allow debugging: attach " << getpid() << '\n';
+                sleep(60);
+                LOG_ERR("Finished sleeping to allow debugging of: " << getpid());
+                std::cerr << "Finished sleeping to allow debugging of: " << getpid() << '\n';
+            }
         }
     }
 
@@ -325,8 +365,8 @@ namespace SigUtil
         setVersionInfo(versionInfo);
 
         sigemptyset(&action.sa_mask);
-        action.sa_flags = 0;
-        action.sa_handler = handleFatalSignal;
+        action.sa_flags = SA_SIGINFO;
+        action.sa_sigaction = handleFatalSignal;
 
         sigaction(SIGSEGV, &action, nullptr);
         sigaction(SIGBUS, &action, nullptr);

@@ -1,9 +1,9 @@
-/* -*- js-indent-level: 8 -*- */
+/* -*- js-indent-level: 8; fill-column: 100 -*- */
 /*
  * L.CanvasTileLayer is a layer with canvas based rendering.
  */
 
-/* global app L CanvasSectionContainer CanvasOverlay CSplitterLine CStyleData $ _ isAnyVexDialogActive CPointSet CPolyUtil CPolygon Cursor CCellCursor CCellSelection PathGroupType */
+/* global app L CanvasSectionContainer CanvasOverlay CDarkOverlay CSplitterLine CStyleData $ _ isAnyVexDialogActive CPointSet CPolyUtil CPolygon Cursor CCellCursor CCellSelection PathGroupType UNOKey UNOModifier */
 
 /*eslint no-extend-native:0*/
 if (typeof String.prototype.startsWith !== 'function') {
@@ -40,11 +40,10 @@ var CStyleData = L.Class.extend({
 	}
 });
 
-// CSelections is used to add/modify/clear selections (text/cell-area(s))
+// CSelections is used to add/modify/clear selections (text/cell-area(s)/ole)
 // on canvas using polygons (CPolygon).
 var CSelections = L.Class.extend({
-
-	initialize: function (pointSet, canvasOverlay, selectionsDataDiv, map, isView, viewId, isText) {
+	initialize: function (pointSet, canvasOverlay, selectionsDataDiv, map, isView, viewId, selectionType) {
 		this._pointSet = pointSet ? pointSet : new CPointSet();
 		this._overlay = canvasOverlay;
 		this._styleData = new CStyleData(selectionsDataDiv);
@@ -52,7 +51,8 @@ var CSelections = L.Class.extend({
 		this._name = 'selections' + (isView ? '-viewid-' + viewId : '');
 		this._isView = isView;
 		this._viewId = viewId;
-		this._isText = isText;
+		this._isText = selectionType === 'text';
+		this._isOle = selectionType === 'ole';
 		this._selection = undefined;
 		this._updateSelection();
 	},
@@ -83,36 +83,54 @@ var CSelections = L.Class.extend({
 
 	_updateSelection: function() {
 		if (!this._selection) {
-			var fillColor = this._isView ?
-				L.LOUtil.rgbToHex(this._map.getViewColor(this._viewId)) :
-				this._styleData.getPropValue('background-color');
-			var opacity = this._styleData.getFloatPropValue('opacity');
-			var weight = this._styleData.getFloatPropWithoutUnit('border-top-width');
-			var attributes = this._isText ? {
-				viewId: this._isView ? this._viewId : undefined,
-				groupType: PathGroupType.TextSelection,
-				name: this._name,
-				pointerEvents: 'none',
-				fillColor: fillColor,
-				fillOpacity: opacity,
-				color: fillColor,
-				opacity: 0.60,
-				stroke: true,
-				fill: true,
-				weight: 1.0
-			} : {
-				viewId: this._isView ? this._viewId : undefined,
-				name: this._name,
-				pointerEvents: 'none',
-				color: fillColor,
-				fillColor: fillColor,
-				fillOpacity: opacity,
-				opacity: 1.0,
-				weight: Math.round(weight * app.dpiScale)
-			};
+			if (!this._isOle) {
+				var fillColor = this._isView ?
+					L.LOUtil.rgbToHex(this._map.getViewColor(this._viewId)) :
+					this._styleData.getPropValue('background-color');
+				var opacity = this._styleData.getFloatPropValue('opacity');
+				var weight = this._styleData.getFloatPropWithoutUnit('border-top-width');
+				var attributes = this._isText ? {
+					viewId: this._isView ? this._viewId : undefined,
+					groupType: PathGroupType.TextSelection,
+					name: this._name,
+					pointerEvents: 'none',
+					fillColor: fillColor,
+					fillOpacity: opacity,
+					color: fillColor,
+					opacity: 0.60,
+					stroke: true,
+					fill: true,
+					weight: 1.0
+				} : {
+					viewId: this._isView ? this._viewId : undefined,
+					name: this._name,
+					pointerEvents: 'none',
+					color: fillColor,
+					fillColor: fillColor,
+					fillOpacity: opacity,
+					opacity: 1.0,
+					weight: Math.round(weight * app.dpiScale)
+				};
+			}
+			else {
+				var attributes = {
+					pointerEvents: 'none',
+					fillColor: 'black',
+					fillOpacity: 0.25,
+					weight: 0,
+					opacity: 0.25
+				};
+			}
 
-			this._selection = this._isText ? new CPolygon(this._pointSet, attributes) :
-				new CCellSelection(this._pointSet, attributes);
+			if (this._isText) {
+				this._selection = new CPolygon(this._pointSet, attributes);
+			}
+			else if (this._isOle) {
+				this._selection = new CDarkOverlay(this._pointSet, attributes);
+			}
+			else {
+				this._selection = new CCellSelection(this._pointSet, attributes);
+			}
 
 			if (this._isText)
 				this._overlay.initPath(this._selection);
@@ -131,7 +149,7 @@ var CSelections = L.Class.extend({
 			this._overlay.removePath(this._selection);
 		else
 			this._overlay.removePathGroup(this._selection);
-	}
+	},
 });
 
 // CReferences is used to store and manage the CPath's of all
@@ -194,9 +212,9 @@ L.TileCoordData = L.Class.extend({
 
 L.TileCoordData.parseKey = function (keyString) {
 
-	console.assert(typeof keyString === 'string', 'key should be a string');
+	window.app.console.assert(typeof keyString === 'string', 'key should be a string');
 	var k = keyString.split(':');
-	console.assert(k.length >= 4, 'invalid key format');
+	window.app.console.assert(k.length >= 4, 'invalid key format');
 	return new L.TileCoordData(+k[0], +k[1], +k[2], +k[3]);
 };
 
@@ -403,6 +421,12 @@ L.TileSectionManager = L.Class.extend({
 			scale = tsManager._zoomFrameScale;
 
 		var ctx = this.sectionProperties.tsManager._paintContext();
+		var isRTL = this.sectionProperties.docLayer.isLayoutRTL();
+		var sectionWidth = this.size[0];
+		var xTransform = function (xcoord) {
+			return isRTL ? sectionWidth - xcoord : xcoord;
+		};
+
 		for (var i = 0; i < ctx.paneBoundsList.length; ++i) {
 			// co-ordinates of this pane in core document pixels
 			var paneBounds = ctx.paneBoundsList[i];
@@ -440,8 +464,9 @@ L.TileSectionManager = L.Class.extend({
 				this.sectionProperties.docLayer.sheetGeometry._columns.forEachInCorePixelRange(
 					repaintArea.min.x, repaintArea.max.x,
 					function(pos) {
-						context.moveTo(Math.floor(scale * (pos - paneOffset.x)) - 0.5, Math.floor(scale * (miny - paneOffset.y)) + 0.5);
-						context.lineTo(Math.floor(scale * (pos - paneOffset.x)) - 0.5, Math.floor(scale * (maxy - paneOffset.y)) - 0.5);
+						var xcoord = xTransform(Math.floor(scale * (pos - paneOffset.x)) - 0.5);
+						context.moveTo(xcoord, Math.floor(scale * (miny - paneOffset.y)) + 0.5);
+						context.lineTo(xcoord, Math.floor(scale * (maxy - paneOffset.y)) - 0.5);
 						context.stroke();
 					});
 
@@ -449,8 +474,12 @@ L.TileSectionManager = L.Class.extend({
 				this.sectionProperties.docLayer.sheetGeometry._rows.forEachInCorePixelRange(
 					miny, maxy,
 					function(pos) {
-						context.moveTo(Math.floor(scale * (repaintArea.min.x - paneOffset.x)) + 0.5, Math.floor(scale * (pos - paneOffset.y)) - 0.5);
-						context.lineTo(Math.floor(scale * (repaintArea.max.x - paneOffset.x)) - 0.5, Math.floor(scale * (pos - paneOffset.y)) - 0.5);
+						context.moveTo(
+							xTransform(Math.floor(scale * (repaintArea.min.x - paneOffset.x)) + 0.5),
+							Math.floor(scale * (pos - paneOffset.y)) - 0.5);
+						context.lineTo(
+							xTransform(Math.floor(scale * (repaintArea.max.x - paneOffset.x)) - 0.5),
+							Math.floor(scale * (pos - paneOffset.y)) - 0.5);
 						context.stroke();
 					});
 
@@ -755,6 +784,8 @@ L.TileSectionManager = L.Class.extend({
 
 L.CanvasTileLayer = L.Layer.extend({
 
+	isMacClient: (navigator.appVersion.indexOf('Mac') != -1 || navigator.userAgent.indexOf('Mac') != -1),
+
 	options: {
 		pane: 'tilePane',
 
@@ -826,6 +857,7 @@ L.CanvasTileLayer = L.Layer.extend({
 		this._cellCursorOnPgUp = null;
 		this._cellCursorOnPgDn = null;
 		this._shapeGridOffset = new L.Point(0, 0);
+		this._masterPageChanged = false;
 
 		// Position and size of the selection start (as if there would be a cursor caret there).
 
@@ -917,7 +949,7 @@ L.CanvasTileLayer = L.Layer.extend({
 
 	_initContainer: function () {
 		if (this._canvasContainer) {
-			console.error('called _initContainer() when this._canvasContainer is present!');
+			window.app.console.error('called _initContainer() when this._canvasContainer is present!');
 		}
 
 		if (this._container) { return; }
@@ -941,7 +973,7 @@ L.CanvasTileLayer = L.Layer.extend({
 	_setup: function () {
 
 		if (!this._canvasContainer) {
-			console.error('canvas container not found. _initContainer failed ?');
+			window.app.console.error('canvas container not found. _initContainer failed ?');
 		}
 
 		this._canvas = L.DomUtil.createWithId('canvas', 'document-canvas', this._canvasContainer);
@@ -1689,6 +1721,10 @@ L.CanvasTileLayer = L.Layer.extend({
 			}
 			this._debugInit();
 		}
+		if (app.socket.traceEventRecordingToggle)
+			this._map.addLayer(this._debugTrace);
+		else
+			this._map.removeLayer(this._debugTrace);
 	},
 
 	_onCommandValuesMsg: function (textMsg) {
@@ -1863,9 +1899,18 @@ L.CanvasTileLayer = L.Layer.extend({
 				url = window.makeHttpUrlWopiSrc('/' + this._map.options.urlPrefix + '/',
 					this._map.options.doc, '/download/' + command.downloadid,
 					'attachment=0');
+
+				if ('processCoolUrl' in window) {
+					url = window.processCoolUrl({ url: url, type: 'print' });
+				}
+
 				window.open(url, '_blank');
 			}
 			else {
+				if ('processCoolUrl' in window) {
+					url = window.processCoolUrl({ url: url, type: 'print' });
+				}
+
 				this._map.fire('filedownloadready', {url: url});
 			}
 		}
@@ -1873,6 +1918,10 @@ L.CanvasTileLayer = L.Layer.extend({
 			this._map.fire('slidedownloadready', {url: url});
 		}
 		else if (command.id === 'export') {
+			if ('processCoolUrl' in window) {
+				url = window.processCoolUrl({ url: url, type: 'export' });
+			}
+
 			// Don't do a real download during testing
 			if (!L.Browser.cypressTest)
 				this._map._fileDownloader.src = url;
@@ -1921,8 +1970,11 @@ L.CanvasTileLayer = L.Layer.extend({
 			if (extraInfo.id) {
 				this._map._cacheSVG[extraInfo.id] = textMsg;
 			}
+			var wasVisibleSVG = this._graphicMarker._hasVisibleEmbeddedSVG();
 			this._graphicMarker.removeEmbeddedSVG();
 			this._graphicMarker.addEmbeddedSVG(textMsg);
+			if (wasVisibleSVG)
+				this._graphicMarker._showEmbeddedSVG();
 		}
 	},
 
@@ -1941,19 +1993,24 @@ L.CanvasTileLayer = L.Layer.extend({
 	},
 
 	_extractAndSetGraphicSelection: function(messageJSON) {
-		var topLeftTwips = new L.Point(messageJSON[0], messageJSON[1]);
-		var offset = new L.Point(messageJSON[2], messageJSON[3]);
-		var bottomRightTwips = topLeftTwips.add(offset);
+		var calcRTL = this.isCalcRTL();
+		var signX =  calcRTL ? -1 : 1;
 		var hasExtraInfo = messageJSON.length > 5;
 		var hasGridOffset = false;
 		var extraInfo = null;
 		if (hasExtraInfo) {
 			extraInfo = messageJSON[5];
 			if (extraInfo.gridOffsetX || extraInfo.gridOffsetY) {
-				this._shapeGridOffset = new L.Point(parseInt(extraInfo.gridOffsetX), parseInt(extraInfo.gridOffsetY));
+				this._shapeGridOffset = new L.Point(signX * parseInt(extraInfo.gridOffsetX), parseInt(extraInfo.gridOffsetY));
 				hasGridOffset = true;
 			}
 		}
+
+		// Calc RTL: Negate positive X coordinates from core if grid offset is available.
+		signX = hasGridOffset && calcRTL ? -1 : 1;
+		var topLeftTwips = new L.Point(signX * messageJSON[0], messageJSON[1]);
+		var offset = new L.Point(signX * messageJSON[2], messageJSON[3]);
+		var bottomRightTwips = topLeftTwips.add(offset);
 
 		if (hasGridOffset) {
 			this._graphicSelectionTwips = new L.Bounds(topLeftTwips.add(this._shapeGridOffset), bottomRightTwips.add(this._shapeGridOffset));
@@ -1968,6 +2025,25 @@ L.CanvasTileLayer = L.Layer.extend({
 		this._graphicSelection.extraInfo = extraInfo;
 	},
 
+	renderDarkOverlay: function () {
+		var zoom = this._map.getZoom();
+
+		var northEastPoint = this._latLngToCorePixels(this._graphicSelection.getNorthEast(), zoom);
+		var southWestPoint = this._latLngToCorePixels(this._graphicSelection.getSouthWest(), zoom);
+
+		if (this.isCalcRTL()) {
+			// Dark overlays (like any other overlay) need regular document coordinates.
+			// But in calc-rtl mode, charts (like shapes) have negative x document coordinate
+			// internal representation.
+			northEastPoint.x = Math.abs(northEastPoint.x);
+			southWestPoint.x = Math.abs(southWestPoint.x);
+		}
+
+		var bounds = new L.Bounds(northEastPoint, southWestPoint);
+
+		this._oleCSelections.setPointSet(CPointSet.fromBounds(bounds));
+	},
+
 	_onGraphicSelectionMsg: function (textMsg) {
 		if (this._map.hyperlinkPopup !== null) {
 			this._closeURLPopUp();
@@ -1976,23 +2052,20 @@ L.CanvasTileLayer = L.Layer.extend({
 			this._resetSelectionRanges();
 		}
 		else if (textMsg.match('INPLACE EXIT')) {
-			this._map.removeObjectFocusDarkOverlay();
+			this._oleCSelections.clear();
 		}
 		else if (textMsg.match('INPLACE')) {
-			if (!this._map.hasObjectFocusDarkOverlay()) {
+			if (this._oleCSelections.empty()) {
 				textMsg = '[' + textMsg.substr('graphicselection:'.length) + ']';
 				try {
 					var msgData = JSON.parse(textMsg);
 					if (msgData.length > 1)
 						this._extractAndSetGraphicSelection(msgData);
-				} catch (error) { console.warn('cannot parse graphicselection command'); }
-
-				var xTwips = this._map._docLayer._latLngToTwips(this._graphicSelection.getNorthWest()).x;
-				var yTwips = this._map._docLayer._latLngToTwips(this._graphicSelection.getNorthWest()).y;
-				var wTwips = this._map._docLayer._latLngToTwips(this._graphicSelection.getSouthEast()).x - xTwips;
-				var hTwips = this._map._docLayer._latLngToTwips(this._graphicSelection.getSouthEast()).y - yTwips;
-
-				this._map.addObjectFocusDarkOverlay(xTwips, yTwips, wTwips, hTwips);
+				}
+				catch (error) {
+					window.app.console.warn('cannot parse graphicselection command');
+				}
+				this.renderDarkOverlay();
 
 				this._graphicSelection = new L.LatLngBounds(new L.LatLng(0, 0), new L.LatLng(0, 0));
 				this._onUpdateGraphicSelection();
@@ -2002,6 +2075,12 @@ L.CanvasTileLayer = L.Layer.extend({
 			textMsg = '[' + textMsg.substr('graphicselection:'.length) + ']';
 			msgData = JSON.parse(textMsg);
 			this._extractAndSetGraphicSelection(msgData);
+
+			// Update the dark overlay on zooming & scrolling
+			if (!this._oleCSelections.empty()) {
+				this._oleCSelections.clear();
+				this.renderDarkOverlay();
+			}
 
 			this._graphicSelectionAngle = (msgData.length > 4) ? msgData[4] : 0;
 
@@ -2038,11 +2117,11 @@ L.CanvasTileLayer = L.Layer.extend({
 		// Graphics are by default complex selections, unless Core tells us otherwise.
 		if (this._map._clip)
 			this._map._clip.onComplexSelection('');
-		if (this._selectionContentRequest) {
+
+		// Reset text selection - important for textboxes in Impress
+		if (this._selectionContentRequest)
 			clearTimeout(this._selectionContentRequest);
-		}
-		this._selectionContentRequest = setTimeout(L.bind(function () {
-			app.socket.sendMessage('gettextselection mimetype=text/html');}, this), 100);
+		this._onMessage('textselectioncontent:');
 
 		this._onUpdateGraphicSelection();
 	},
@@ -2690,14 +2769,14 @@ L.CanvasTileLayer = L.Layer.extend({
 	},
 
 	_onUnoCommandResultMsg: function (textMsg) {
-		// console.log('_onUnoCommandResultMsg: "' + textMsg + '"');
+		// window.app.console.log('_onUnoCommandResultMsg: "' + textMsg + '"');
 		textMsg = textMsg.substring(18);
 		var obj = JSON.parse(textMsg);
 		var commandName = obj.commandName;
-		if (obj.success === 'true') {
+		if (obj.success === 'true' || obj.success === true) {
 			var success = true;
 		}
-		else if (obj.success === 'false') {
+		else if (obj.success === 'false' || obj.success === false) {
 			success = false;
 		}
 
@@ -3185,6 +3264,8 @@ L.CanvasTileLayer = L.Layer.extend({
 		this._textCSelections.clear();
 		// hide the cell selection
 		this._cellCSelections.clear();
+		// hide the ole selection
+		this._oleCSelections.clear();
 		// hide the selection handles
 		this._onUpdateTextSelection();
 		// hide the graphic selection
@@ -3256,6 +3337,31 @@ L.CanvasTileLayer = L.Layer.extend({
 		if (!this._map._docLoaded)
 			return;
 
+		if (this.isMacClient) {
+			// Map Mac standard shortcuts to the LO shortcuts for the corresponding
+			// functions when possible. Note that the Cmd modifier comes here as CTRL.
+
+			// Cmd+UpArrow -> Ctrl+Home
+			if (unoKeyCode == UNOKey.UP + UNOModifier.CTRL)
+				unoKeyCode = UNOKey.HOME + UNOModifier.CTRL;
+			// Cmd+DownArrow -> Ctrl+End
+			else if (unoKeyCode == UNOKey.DOWN + UNOModifier.CTRL)
+				unoKeyCode = UNOKey.END + UNOModifier.CTRL;
+			// Cmd+LeftArrow -> Home
+			else if (unoKeyCode == UNOKey.LEFT + UNOModifier.CTRL)
+				unoKeyCode = UNOKey.HOME;
+			// Cmd+RightArrow -> End
+			else if (unoKeyCode == UNOKey.RIGHT + UNOModifier.CTRL)
+				unoKeyCode = UNOKey.END;
+			// Option+LeftArrow -> Ctrl+LeftArrow
+			else if (unoKeyCode == UNOKey.LEFT + UNOModifier.ALT)
+				unoKeyCode = UNOKey.LEFT + UNOModifier.CTRL;
+			// Option+RightArrow -> Ctrl+RightArrow (Not entirely equivalent, should go
+			// to end of word (or next), LO goes to beginning of next word.)
+			else if (unoKeyCode == UNOKey.RIGHT + UNOModifier.ALT)
+				unoKeyCode = UNOKey.RIGHT + UNOModifier.CTRL;
+		}
+
 		var completeEvent = app.socket.createCompleteTraceEvent('L.TileSectionManager.postKeyboardEvent', { type: type, charCode: charCode });
 
 		var winId = this._map.getWinId();
@@ -3265,22 +3371,22 @@ L.CanvasTileLayer = L.Layer.extend({
 			type === 'input' &&
 			winId === 0
 		) {
-			if (unoKeyCode === 1030) { // PgUp
+			if (unoKeyCode === UNOKey.PAGEUP) {
 				if (this._cellCursorOnPgUp) {
 					return;
 				}
 				this._cellCursorOnPgUp = new L.LatLngBounds(this._prevCellCursor.getSouthWest(), this._prevCellCursor.getNorthEast());
 			}
-			else if (unoKeyCode === 1031) { // PgDn
+			else if (unoKeyCode === UNOKey.PAGEDOWN) {
 				if (this._cellCursorOnPgDn) {
 					return;
 				}
 				this._cellCursorOnPgDn = new L.LatLngBounds(this._prevCellCursor.getSouthWest(), this._prevCellCursor.getNorthEast());
 			}
-			else if (unoKeyCode === 9476) { // Select whole column.
+			else if (unoKeyCode === UNOKey.SPACE + UNOModifier.CTRL) { // Select whole column.
 				this._map.wholeColumnSelected = true;
 			}
-			else if (unoKeyCode === 5380) { // Select whole row.
+			else if (unoKeyCode === UNOKey.SPACE + UNOModifier.SHIFT) { // Select whole row.
 				this._map.wholeRowSelected = true;
 			}
 		}
@@ -3438,7 +3544,9 @@ L.CanvasTileLayer = L.Layer.extend({
 
 			var hasMobileWizardOpened = this._map.uiManager.mobileWizard ? this._map.uiManager.mobileWizard.isOpen() : false;
 			// Don't show the keyboard when the Wizard is visible.
-			if (!window.mobileWizard && !window.pageMobileWizard && !window.insertionMobileWizard && !hasMobileWizardOpened) {
+			if (!window.mobileWizard && !window.pageMobileWizard &&
+				!window.insertionMobileWizard && !hasMobileWizardOpened &&
+				!this._isAnyInputFocused()) {
 				// If the user is editing, show the keyboard, but don't change
 				// anything if nothing is changed.
 
@@ -3601,6 +3709,7 @@ L.CanvasTileLayer = L.Layer.extend({
 	_onGraphicMove: function (e) {
 		if (!e.pos) { return; }
 		var aPos = this._latLngToTwips(e.pos);
+		var calcRTL = this.isCalcRTL();
 		if (e.type === 'graphicmovestart') {
 			this._graphicMarker.isDragged = true;
 			this._graphicMarker.setVisible(true);
@@ -3649,8 +3758,17 @@ L.CanvasTileLayer = L.Layer.extend({
 				}
 			}
 			else {
-				var newPos = this._graphicSelectionTwips.min.add(deltaPos);
+				var newPos = new L.Point(
+					// Choose the logical left of the shape.
+					this._graphicSelectionTwips.min.x + deltaPos.x,
+					this._graphicSelectionTwips.min.y + deltaPos.y);
+
 				var size = this._graphicSelectionTwips.getSize();
+
+				if (calcRTL) {
+					// make x coordinate of newPos +ve
+					newPos.x = -newPos.x;
+				}
 
 				// try to keep shape inside document
 				if (newPos.x + size.x > this._docWidthTwips)
@@ -3665,6 +3783,11 @@ L.CanvasTileLayer = L.Layer.extend({
 
 				if (this.isCalc() && this.options.printTwipsMsgsEnabled) {
 					newPos = this.sheetGeometry.getPrintTwipsPointFromTile(newPos);
+				}
+
+				// restore the sign(negative) of x coordinate.
+				if (calcRTL) {
+					newPos.x = -newPos.x;
 				}
 
 				param = {
@@ -3689,9 +3812,11 @@ L.CanvasTileLayer = L.Layer.extend({
 		if (!e.pos) { return; }
 		if (!e.handleId) { return; }
 
+		var calcRTL = this.isCalcRTL();
 		var aPos = this._latLngToTwips(e.pos);
 		var selMin = this._graphicSelectionTwips.min;
 		var selMax = this._graphicSelectionTwips.max;
+
 		var handleId = e.handleId;
 
 		if (e.type === 'scalestart') {
@@ -3719,7 +3844,8 @@ L.CanvasTileLayer = L.Layer.extend({
 				},
 				NewPosX: {
 					type: 'long',
-					value: aPos.x
+					// In Calc RTL mode ensure that we send positive X coordinates.
+					value: calcRTL ? -aPos.x : aPos.x
 				},
 				NewPosY: {
 					type: 'long',
@@ -4044,7 +4170,7 @@ L.CanvasTileLayer = L.Layer.extend({
 			if (!this._cellCursorXY.equals(this._prevCellCursorXY) &&
 			    !this._map.calcInputBarHasFocus()) {
 				var scroll = this._calculateScrollForNewCellCursor();
-				console.assert(scroll instanceof L.LatLng, '_calculateScrollForNewCellCursor returned wrong type');
+				window.app.console.assert(scroll instanceof L.LatLng, '_calculateScrollForNewCellCursor returned wrong type');
 				if (scroll.lng !== 0 || scroll.lat !== 0) {
 					var newCenter = mapBounds.getCenter();
 					newCenter.lng += scroll.lng;
@@ -4166,8 +4292,7 @@ L.CanvasTileLayer = L.Layer.extend({
 	_addDropDownMarker: function () {
 		if (this._validatedCellXY && this._cellCursorXY && this._validatedCellXY.equals(this._cellCursorXY)) {
 			var pos = this._cellCursor.getNorthEast();
-			var cellCursorHeightPx = this._twipsToPixels(this._cellCursorTwips.getSize()).y;
-			var dropDownMarker = this._getDropDownMarker(cellCursorHeightPx);
+			var dropDownMarker = this._getDropDownMarker(16);
 			dropDownMarker.setLatLng(pos);
 			this._map.addLayer(dropDownMarker);
 		}
@@ -4271,23 +4396,26 @@ L.CanvasTileLayer = L.Layer.extend({
 		var startPos = this._map.project(this._textSelectionStart.getSouthWest());
 		var endPos = this._map.project(this._textSelectionEnd.getSouthWest());
 		var startMarkerPos = this._map.project(startMarker.getLatLng());
+		// CalcRTL: position from core are in document coordinates. Conversion to layer coordinates for each maker is done
+		// in L.Layer.getLayerPositionVisibility(). Icons of RTL "start" and "end" has to be interchanged.
+		var calcRTL = this.isCalcRTL();
 		if (startMarkerPos.distanceTo(endPos) < startMarkerPos.distanceTo(startPos) && startMarker._icon && endMarker._icon) {
 			// if the start marker is actually closer to the end of the selection
 			// reverse icons and markers
-			L.DomUtil.removeClass(startMarker._icon, 'leaflet-selection-marker-start');
-			L.DomUtil.removeClass(endMarker._icon, 'leaflet-selection-marker-end');
-			L.DomUtil.addClass(startMarker._icon, 'leaflet-selection-marker-end');
-			L.DomUtil.addClass(endMarker._icon, 'leaflet-selection-marker-start');
+			L.DomUtil.removeClass(startMarker._icon, calcRTL ? 'leaflet-selection-marker-end' : 'leaflet-selection-marker-start');
+			L.DomUtil.removeClass(endMarker._icon, calcRTL ? 'leaflet-selection-marker-start' : 'leaflet-selection-marker-end');
+			L.DomUtil.addClass(startMarker._icon, calcRTL ? 'leaflet-selection-marker-start' : 'leaflet-selection-marker-end');
+			L.DomUtil.addClass(endMarker._icon, calcRTL ? 'leaflet-selection-marker-end' : 'leaflet-selection-marker-start');
 			var tmp = startMarker;
 			startMarker = endMarker;
 			endMarker = tmp;
 		}
 		else if (startMarker._icon && endMarker._icon) {
 			// normal markers and normal icons
-			L.DomUtil.removeClass(startMarker._icon, 'leaflet-selection-marker-end');
-			L.DomUtil.removeClass(endMarker._icon, 'leaflet-selection-marker-start');
-			L.DomUtil.addClass(startMarker._icon, 'leaflet-selection-marker-start');
-			L.DomUtil.addClass(endMarker._icon, 'leaflet-selection-marker-end');
+			L.DomUtil.removeClass(startMarker._icon, calcRTL ? 'leaflet-selection-marker-start' : 'leaflet-selection-marker-end');
+			L.DomUtil.removeClass(endMarker._icon, calcRTL ? 'leaflet-selection-marker-end' : 'leaflet-selection-marker-start');
+			L.DomUtil.addClass(startMarker._icon, calcRTL ? 'leaflet-selection-marker-end' : 'leaflet-selection-marker-start');
+			L.DomUtil.addClass(endMarker._icon, calcRTL ? 'leaflet-selection-marker-start' : 'leaflet-selection-marker-end');
 		}
 
 		if (!startMarker.isDragged) {
@@ -4511,8 +4639,14 @@ L.CanvasTileLayer = L.Layer.extend({
 			return rectangle;
 		}
 
+		// Calc
 		var rectSize = rectangle.getSize();
 		var newTopLeft = this.sheetGeometry.getTileTwipsPointFromPrint(rectangle.getTopLeft());
+		if (this.isLayoutRTL()) { // Convert to negative display-twips coordinates.
+			newTopLeft.x = -newTopLeft.x;
+			rectSize.x = -rectSize.x;
+		}
+
 		return new L.Bounds(newTopLeft, newTopLeft.add(rectSize));
 	},
 
@@ -4527,7 +4661,7 @@ L.CanvasTileLayer = L.Layer.extend({
 	_getEditCursorRectangle: function (msgObj) {
 
 		if (typeof msgObj !== 'object' || !Object.prototype.hasOwnProperty.call(msgObj,'rectangle')) {
-			console.error('invalid edit cursor message');
+			window.app.console.error('invalid edit cursor message');
 			return undefined;
 		}
 
@@ -4537,7 +4671,7 @@ L.CanvasTileLayer = L.Layer.extend({
 	_getTextSelectionRectangles: function (textMsg) {
 
 		if (typeof textMsg !== 'string') {
-			console.error('invalid text selection message');
+			window.app.console.error('invalid text selection message');
 			return [];
 		}
 
@@ -4547,7 +4681,7 @@ L.CanvasTileLayer = L.Layer.extend({
 	// Needed for the split-panes feature to determine the active split-pane.
 	// Needs to be implemented by the app specific TileLayer.
 	getCursorPos: function () {
-		console.error('No implementations available for getCursorPos!');
+		window.app.console.error('No implementations available for getCursorPos!');
 		return new L.Point(0, 0);
 	},
 
@@ -4560,7 +4694,7 @@ L.CanvasTileLayer = L.Layer.extend({
 
 		// These paneRects are in core pixels.
 		var paneRects = this._splitPanesContext.getPxBoundList();
-		console.assert(paneRects.length, 'number of panes cannot be zero!');
+		window.app.console.assert(paneRects.length, 'number of panes cannot be zero!');
 
 		return paneRects.map(function (pxBound) {
 			return new L.LatLngBounds(
@@ -4603,6 +4737,8 @@ L.CanvasTileLayer = L.Layer.extend({
 			this._tilesDevicePixelGrid = new L.LayerGroup();
 			this._debugSidebar = new L.LayerGroup();
 			this._debugTyper = new L.LayerGroup();
+			this._debugTrace = new L.LayerGroup();
+			this._debugLogging = new L.LayerGroup();
 			this._map.addLayer(this._debugInfo);
 			this._map.addLayer(this._debugInfo2);
 			var overlayMaps = {
@@ -4613,6 +4749,8 @@ L.CanvasTileLayer = L.Layer.extend({
 				'Typing': this._debugTyper,
 				'Tiles device pixel grid': this._tilesDevicePixelGrid,
 				'Sidebar Rerendering': this._debugSidebar,
+				'Performance Tracing': this._debugTrace,
+				'Protocol logging': this._debugLogging,
 			};
 			L.control.layers({}, overlayMaps, {collapsed: false}).addTo(this._map);
 
@@ -4632,6 +4770,10 @@ L.CanvasTileLayer = L.Layer.extend({
 					this._map._docLayer._painter._sectionContainer.reNewAllSections(true);
 				} else if (e.layer === this._debugSidebar) {
 					this._map._debugSidebar = true;
+				} else if (e.layer === this._debugTrace) {
+					app.socket.setTraceEventLogging(true);
+				} else if (e.layer === this._debugLogging) {
+					window.setLogging(true);
 				}
 			}, this);
 			this._map.on('layerremove', function(e) {
@@ -4650,6 +4792,10 @@ L.CanvasTileLayer = L.Layer.extend({
 					this._map._docLayer._painter._sectionContainer.reNewAllSections(true);
 				} else if (e.layer === this._debugSidebar) {
 					this._map._debugSidebar = false;
+				} else if (e.layer === this._debugTrace) {
+					app.socket.setTraceEventLogging(false);
+				} else if (e.layer === this._debugLogging) {
+					window.setLogging(false);
 				}
 			}, this);
 		}
@@ -4843,7 +4989,8 @@ L.CanvasTileLayer = L.Layer.extend({
 				'graphicselection',
 			] : [
 				'invalidatecursor',
-				'textselection'
+				'textselection',
+				'graphicselection'
 			];
 
 			var otherViewTypes = this.isCalc() ? [
@@ -5023,7 +5170,7 @@ L.CanvasTileLayer = L.Layer.extend({
 			if (window.mode.isMobile() && !hasMobileWizardOpened) {
 				if (heightIncreased) {
 					// if the keyboard is hidden - be sure we setup correct state in TextInput
-					this._map.focus(false);
+					this._map.setAcceptInput(false);
 				} else
 					this._onUpdateCursor(true);
 			}
@@ -5048,8 +5195,10 @@ L.CanvasTileLayer = L.Layer.extend({
 					this._map.panTo(cursorPos);
 			}
 
-			if (heightIncreased || widthIncreased)
+			if (heightIncreased || widthIncreased) {
 				this._painter._sectionContainer.requestReDraw();
+				this._map.fire('sizeincreased');
+			}
 		}
 	},
 
@@ -5078,9 +5227,11 @@ L.CanvasTileLayer = L.Layer.extend({
 		this._initContainer();
 		this._getToolbarCommandsValues();
 		this._textCSelections = new CSelections(undefined, this._canvasOverlay,
-			this._selectionsDataDiv, this._map, false /* isView */, undefined, true /* isText */);
+			this._selectionsDataDiv, this._map, false /* isView */, undefined, 'text');
 		this._cellCSelections = new CSelections(undefined, this._canvasOverlay,
-			this._selectionsDataDiv, this._map, false /* isView */, undefined, false /* isText */);
+			this._selectionsDataDiv, this._map, false /* isView */, undefined, 'cell');
+		this._oleCSelections = new CSelections(undefined, this._canvasOverlay,
+			this._selectionsDataDiv, this._map, false /* isView */, undefined, 'ole');
 		this._references = new CReferences(this._canvasOverlay);
 		this._referencesAll = [];
 
@@ -5133,9 +5284,6 @@ L.CanvasTileLayer = L.Layer.extend({
 					if (!isAnyVexDialogActive())
 						this._onCellCursorShift(true);
 				}
-				if (e.statusType === 'alltilesloaded' && this._map.shouldWelcome()) {
-					this._map.showWelcomeDialog();
-				}
 			},
 			this);
 
@@ -5186,6 +5334,10 @@ L.CanvasTileLayer = L.Layer.extend({
 
 		if (!this._textCSelections.empty()) {
 			this._textCSelections.clear();
+		}
+
+		if (!this._oleCSelections.empty()) {
+			this._oleCSelections.clear();
 		}
 
 		if (this._cursorMarker && this._cursorMarker.isDomAttached()) {
@@ -5439,6 +5591,13 @@ L.CanvasTileLayer = L.Layer.extend({
 		return this._cssPixelsToTwips(pixels);
 	},
 
+	_latLngToCorePixels: function(latLng, zoom) {
+		var pixels = this._map.project(latLng, zoom);
+		return new L.Point (
+			pixels.x * app.dpiScale,
+			pixels.y * app.dpiScale);
+	},
+
 	_twipsToPixels: function (twips) { // css pixels
 		return this._twipsToCssPixels(twips);
 	},
@@ -5581,6 +5740,20 @@ L.CanvasTileLayer = L.Layer.extend({
 		}
 	},
 
+	// Used with file based view. Check the most visible part and set the selected part if needed.
+	_checkSelectedPart: function () {
+		var queue = this._updateFileBasedView(true);
+		if (queue.length > 0) {
+			var partToSelect = this._getMostVisiblePart(queue);
+			if (this._selectedPart !== partToSelect) {
+				this._selectedPart = partToSelect;
+				this._preview._scrollToPart();
+				this.highlightCurrentPart(partToSelect);
+				app.socket.sendMessage('setclientpart part=' + this._selectedPart);
+			}
+		}
+	},
+
 	_updateFileBasedView: function (checkOnly, zoomFrameBounds, forZoom) {
 		if (this._partHeightTwips === 0) // This is true before status message is handled.
 			return [];
@@ -5589,12 +5762,12 @@ L.CanvasTileLayer = L.Layer.extend({
 
 		if (!checkOnly) {
 			// zoomFrameBounds and forZoom params were introduced to work only in checkOnly mode.
-			console.assert(zoomFrameBounds === undefined, 'zoomFrameBounds must only be supplied when checkOnly is true');
-			console.assert(forZoom === undefined, 'forZoom must only be supplied when checkOnly is true');
+			window.app.console.assert(zoomFrameBounds === undefined, 'zoomFrameBounds must only be supplied when checkOnly is true');
+			window.app.console.assert(forZoom === undefined, 'forZoom must only be supplied when checkOnly is true');
 		}
 
 		if (forZoom !== undefined) {
-			console.assert(zoomFrameBounds, 'zoomFrameBounds must be valid when forZoom is specified');
+			window.app.console.assert(zoomFrameBounds, 'zoomFrameBounds must be valid when forZoom is specified');
 		}
 
 		var zoom = forZoom || Math.round(this._map.getZoom());
@@ -5632,15 +5805,6 @@ L.CanvasTileLayer = L.Layer.extend({
 			}
 
 			this._sortFileBasedQueue(queue);
-
-			if (queue.length > 0) {
-				var partToSelect = this._getMostVisiblePart(queue);
-				if (this._selectedPart !== partToSelect) {
-					this._selectedPart = partToSelect;
-					this._preview._scrollToPart();
-					this.highlightCurrentPart(partToSelect);
-				}
-			}
 
 			for (i = 0; i < this._tiles.length; i++) {
 				this._tiles[i].current = false; // Visible ones's "current" property will be set to true below.
@@ -5704,6 +5868,13 @@ L.CanvasTileLayer = L.Layer.extend({
 		if (this.isCalc() && !this._gotFirstCellCursor)
 			return;
 
+		// be sure canvas is initialized already and has correct size
+		var size = map.getSize();
+		if (size.x === 0 || size.y === 0) {
+			setTimeout(function () { this._update(); }.bind(this), 1);
+			return;
+		}
+
 		if (app.file.fileBasedView) {
 			this._updateFileBasedView();
 			return;
@@ -5763,6 +5934,13 @@ L.CanvasTileLayer = L.Layer.extend({
 
 		this._sendClientVisibleArea();
 		this._sendClientZoom();
+
+		if (this._masterPageChanged) {
+			// avoid cancelling tiles on masterpage view switches
+			// it will be cancelled updateOnPartChange when necessary
+			this._masterPageChanged = false;
+			cancelTiles = false;
+		}
 
 		if (queue.length !== 0) {
 			if (cancelTiles) {
@@ -6159,7 +6337,7 @@ L.CanvasTileLayer = L.Layer.extend({
 			typeof msgObj.tileWidth !== 'number' ||
 			typeof msgObj.tileHeight !== 'number' ||
 			typeof msgObj.part !== 'number') {
-			console.error('Unexpected content in the parsed tile message.');
+			window.app.console.error('Unexpected content in the parsed tile message.');
 		}
 	},
 
@@ -6433,6 +6611,14 @@ L.CanvasTileLayer = L.Layer.extend({
 			coords.y * this.options.tileHeightTwips / this._tileSize / zoomFactor);
 		var tileSize = new L.Point(this.options.tileWidthTwips / zoomFactor, this.options.tileHeightTwips / zoomFactor);
 		return new L.Bounds(tileTopLeft, tileTopLeft.add(tileSize));
+	},
+
+	isLayoutRTL: function () {
+		return !!this._layoutIsRTL;
+	},
+
+	isCalcRTL: function () {
+		return this.isCalc() && this.isLayoutRTL();
 	}
 
 });
@@ -6515,7 +6701,7 @@ L.TilesPreFetcher = L.Class.extend({
 			var paneStatusList = splitPanesContext ? splitPanesContext.getPanesProperties() :
 				[ { xFixed: false, yFixed: false} ];
 
-			console.assert(tileRanges.length === paneStatusList.length, 'tileRanges and paneStatusList should agree on the number of split-panes');
+			window.app.console.assert(tileRanges.length === paneStatusList.length, 'tileRanges and paneStatusList should agree on the number of split-panes');
 
 			for (var paneIdx = 0; paneIdx < tileRanges.length; ++paneIdx) {
 				paneXFixed = paneStatusList[paneIdx].xFixed;
@@ -6670,7 +6856,7 @@ L.TilesPreFetcher = L.Class.extend({
 		} // pane loop end
 
 		if (!immediate)
-			console.assert(finalQueue.length <= maxTilesToFetch,
+			window.app.console.assert(finalQueue.length <= maxTilesToFetch,
 				'finalQueue length(' + finalQueue.length + ') exceeded maxTilesToFetch(' + maxTilesToFetch + ')');
 
 		var tilesRequested = false;
@@ -6764,7 +6950,7 @@ L.MessageStore = L.Class.extend({
 	initialize: function (ownViewTypes, otherViewTypes) {
 
 		if (!Array.isArray(ownViewTypes) || !Array.isArray(otherViewTypes)) {
-			console.error('Unexpected argument types');
+			window.app.console.error('Unexpected argument types');
 			return;
 		}
 
@@ -6822,9 +7008,11 @@ L.MessageStore = L.Class.extend({
 
 	forEach: function (callback) {
 		if (typeof callback !== 'function') {
-			console.error('Invalid callback type');
+			window.app.console.error('Invalid callback type');
 			return;
 		}
+
+		this._cleanUpSelectionMessages(this._ownMessages);
 
 		var ownMessages = this._ownMessages;
 		Object.keys(this._ownMessages).forEach(function (msgType) {
@@ -6835,5 +7023,17 @@ L.MessageStore = L.Class.extend({
 		Object.keys(othersMessages).forEach(function (msgType) {
 			othersMessages[msgType].forEach(callback);
 		});
+	},
+
+	_cleanUpSelectionMessages: function(messages) {
+		// must be called only from _replayPrintTwipsMsg !!
+		// check if textselection is empty
+		// if it is, we need to handle textselectionstart and textselectionend
+		// otherwise we get handles without selection and they also may appear in the wrong cell
+		// but it is also reproducible on the same cell too. e.g. selection handles without selection
+		if (!messages && !messages['textselection'] && messages['textselection'] !== 'textselection: ')
+			return;
+		messages['textselectionstart'] = 'textselectionstart: ';
+		messages['textselectionend'] = 'textselectionend: ';
 	}
 });

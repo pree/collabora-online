@@ -24,6 +24,7 @@
 #include "ClientSession.hpp"
 #include <Common.hpp>
 #include <Protocol.hpp>
+#include <StringVector.hpp>
 #include <Unit.hpp>
 #include <Util.hpp>
 #include <common/FileUtil.hpp>
@@ -249,7 +250,9 @@ bool TileCache::getTextStream(StreamType type, const std::string& fileName, std:
     Tile textStream = lookupCachedStream(type, fileName);
     if (!textStream)
     {
-        LOG_ERR("Could not open " << fileName);
+        // This is not an error because the first time
+        // we lookup a file, it won't be in the cache.
+        LOG_INF("Could not open " << fileName);
         return false;
     }
 
@@ -325,7 +328,7 @@ void TileCache::invalidateTiles(const std::string& tiles, int normalizedViewId)
 
 std::pair<int, Util::Rectangle> TileCache::parseInvalidateMsg(const std::string& tiles)
 {
-    StringVector tokens = Util::tokenize(tiles);
+    StringVector tokens = StringVector::tokenize(tiles);
 
     assert(!tokens.empty() && tokens.equals(0, "invalidatetiles:"));
 
@@ -342,17 +345,17 @@ std::pair<int, Util::Rectangle> TileCache::parseInvalidateMsg(const std::string&
     }
     else
     {
-        int part;
-        int x;
-        int y;
-        int width;
-        int height;
+        int part = 0;
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
         if (tokens.size() == 6 &&
             getTokenInteger(tokens[1], "part", part) &&
-            getTokenInteger(tokens[2], "x", x) &&
-            getTokenInteger(tokens[3], "y", y) &&
-            getTokenInteger(tokens[4], "width", width) &&
-            getTokenInteger(tokens[5], "height", height))
+            getNonNegTokenInteger(tokens[2], "x", x) &&
+            getNonNegTokenInteger(tokens[3], "y", y) &&
+            getNonNegTokenInteger(tokens[4], "width", width) &&
+            getNonNegTokenInteger(tokens[5], "height", height))
         {
             return std::pair<int, Util::Rectangle>(part, Util::Rectangle(x, y, width, height));
         }
@@ -423,7 +426,7 @@ void TileCache::subscribeToTileRendering(const TileDesc& tile, const std::shared
         {
             if (s.lock().get() == subscriber.get())
             {
-                LOG_DBG("Redundant request to subscribe on tile " << tile.debugName());
+                LOG_TRC("Redundant request to subscribe on tile " << tile.debugName());
                 tileBeingRendered->setVersion(tile.getVersion());
                 return;
             }
@@ -670,7 +673,8 @@ void TileCache::TileBeingRendered::dumpState(std::ostream& os)
 
 void TileCache::dumpState(std::ostream& os)
 {
-    os << "  tile cache: num: " << _cache.size() << " size: " << _cacheSize << " bytes\n";
+    os << "\n  TileCache:";
+    os << "\n    num: " << _cache.size() << " size: " << _cacheSize << " bytes\n";
     for (const auto& it : _cache)
     {
         os << "    " << std::setw(4) << it.first.getWireId()
@@ -689,7 +693,7 @@ void TileCache::dumpState(std::ostream& os)
             size += it.second->size();
         }
 
-        os << "  stream cache: " << type++ << " num: " << num << " size: " << size << " bytes\n";
+        os << "    stream cache: " << type++ << " num: " << num << " size: " << size << " bytes\n";
         for (const auto& it : i)
         {
             os << "    " << it.first
@@ -697,7 +701,7 @@ void TileCache::dumpState(std::ostream& os)
         }
     }
 
-    os << "  tiles being rendered " << _tilesBeingRendered.size() << '\n';
+    os << "    tiles being rendered " << _tilesBeingRendered.size() << '\n';
     for (const auto& it : _tilesBeingRendered)
         it.second->dumpState(os);
 }

@@ -40,6 +40,7 @@ class HTTPWSTest : public CPPUNIT_NS::TestFixture
 
     CPPUNIT_TEST_SUITE(HTTPWSTest);
 
+    CPPUNIT_TEST(testExoticLang);
     CPPUNIT_TEST(testSaveOnDisconnect);
     CPPUNIT_TEST(testSavePassiveOnDisconnect);
     // This test is failing
@@ -50,6 +51,7 @@ class HTTPWSTest : public CPPUNIT_NS::TestFixture
 
     CPPUNIT_TEST_SUITE_END();
 
+    void testExoticLang();
     void testSaveOnDisconnect();
     void testSavePassiveOnDisconnect();
     void testReloadWhileDisconnecting();
@@ -95,6 +97,27 @@ public:
         resetTestStartTime();
     }
 };
+
+void HTTPWSTest::testExoticLang()
+{
+    const std::string testname = "saveOnDisconnect- ";
+
+    std::string documentPath, documentURL;
+    getDocumentPathAndURL("hello.odt", documentPath, documentURL, testname);
+
+    try
+    {
+        std::shared_ptr<http::WebSocketSession> socket
+            = loadDocAndGetSession(_socketPoll, _uri, documentURL,
+                                   "exoticlocale", true, true,
+                                   " lang=es-419");
+        socket->asyncShutdown();
+    }
+    catch (const Poco::Exception& exc)
+    {
+        LOK_ASSERT_FAIL(exc.displayText());
+    }
+}
 
 void HTTPWSTest::testSaveOnDisconnect()
 {
@@ -397,7 +420,7 @@ void HTTPWSTest::testViewInfoMsg()
         sendTextFrame(socket0, "load url=" + docURL);
         response = getResponseString(socket0, "status:", testname + "0 ");
         LOK_ASSERT_MESSAGE("Expected status: message", !response.empty());
-        parseDocSize(response.substr(7), "text", part, parts, width, height, viewid[0]);
+        parseDocSize(response.substr(7), "text", part, parts, width, height, viewid[0], testname);
 
         // Check if viewinfo message also mentions the same viewid
         TST_LOG("Waiting for [viewinfo:] from the first view");
@@ -414,7 +437,7 @@ void HTTPWSTest::testViewInfoMsg()
         TST_LOG("Loading the second view");
         sendTextFrame(socket1, "load url=" + docURL);
         response = getResponseString(socket1, "status:", testname + "1 ");
-        parseDocSize(response.substr(7), "text", part, parts, width, height, viewid[1]);
+        parseDocSize(response.substr(7), "text", part, parts, width, height, viewid[1], testname);
 
         // Check if viewinfo message in this view mentions
         // viewid of both first loaded view and this view
@@ -463,7 +486,7 @@ void HTTPWSTest::testUndoConflict()
     Poco::JSON::Parser parser;
     std::string docPath;
     std::string docURL;
-    int conflict;
+    int conflict = 0;
 
     getDocumentPathAndURL("empty.odt", docPath, docURL, testname);
 

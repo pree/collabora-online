@@ -712,7 +712,8 @@ std::shared_ptr<COOLWebSocket> loadDocAndGetSocket(const std::string& docFilenam
 inline std::shared_ptr<http::WebSocketSession>
 loadDocAndGetSession(std::shared_ptr<SocketPoll> socketPoll, const Poco::URI& uri,
                      const std::string& documentURL, const std::string& testname,
-                     bool isView = true, bool isAssert = true)
+                     bool isView = true, bool isAssert = true,
+                     const std::string &loadParams = "")
 {
     try
     {
@@ -721,7 +722,7 @@ loadDocAndGetSession(std::shared_ptr<SocketPoll> socketPoll, const Poco::URI& ur
         http::Request req(documentURL);
         ws->asyncRequest(req, std::move(socketPoll));
 
-        sendTextFrame(ws, "load url=" + documentURL, testname);
+        sendTextFrame(ws, "load url=" + documentURL + loadParams, testname);
         const bool isLoaded = isDocumentLoaded(ws, testname, isView);
         if (!isLoaded && !isAssert)
         {
@@ -776,7 +777,7 @@ inline void SocketProcessor(const std::string& testname,
     const Poco::Timespan waitTime(std::chrono::microseconds(timeoutMs).count());
     int flags = 0;
     int n = 0;
-    char buffer[READ_BUFFER_SIZE];
+    char buffer[READ_BUFFER_SIZE * 8];
     do
     {
         if (!socket->poll(waitTime, Poco::Net::Socket::SELECT_READ))
@@ -812,9 +813,10 @@ SocketProcessor(const std::string& testname, const std::shared_ptr<http::WebSock
 
 inline
 void parseDocSize(const std::string& message, const std::string& type,
-                  int& part, int& parts, int& width, int& height, int& viewid)
+                  int& part, int& parts, int& width, int& height, int& viewid,
+                  const std::string& testname)
 {
-    StringVector tokens(Util::tokenize(message, ' '));
+    StringVector tokens(StringVector::tokenize(message, ' '));
 
     // Expected format is something like 'type= parts= current= width= height='.
     const std::string text = tokens[0].substr(std::string("type=").size());
@@ -824,11 +826,11 @@ void parseDocSize(const std::string& message, const std::string& type,
     height = std::stoi(tokens[4].substr(std::string("height=").size()));
     viewid = std::stoi(tokens[5].substr(std::string("viewid=").size()));
     LOK_ASSERT_EQUAL(type, text);
-    CPPUNIT_ASSERT(parts > 0);
-    CPPUNIT_ASSERT(part >= 0);
-    CPPUNIT_ASSERT(width > 0);
-    CPPUNIT_ASSERT(height > 0);
-    CPPUNIT_ASSERT(viewid >= 0);
+    LOK_ASSERT(parts > 0);
+    LOK_ASSERT(part >= 0);
+    LOK_ASSERT(width > 0);
+    LOK_ASSERT(height > 0);
+    LOK_ASSERT(viewid >= 0);
 }
 
 inline std::vector<char> getTileMessage(const std::shared_ptr<http::WebSocketSession>& ws,
@@ -849,7 +851,7 @@ std::vector<char> assertTileMessage(COOLWebSocket& ws, const std::string& testna
     const std::vector<char> response = getTileMessage(ws, testname);
 
     const std::string firstLine = COOLProtocol::getFirstLine(response);
-    StringVector tileTokens(Util::tokenize(firstLine, ' '));
+    StringVector tileTokens(StringVector::tokenize(firstLine, ' '));
     LOK_ASSERT_EQUAL(std::string("tile:"), tileTokens[0]);
     LOK_ASSERT_EQUAL(std::string("part="), tileTokens[1].substr(0, std::string("part=").size()));
     LOK_ASSERT_EQUAL(std::string("width="), tileTokens[2].substr(0, std::string("width=").size()));
@@ -1028,7 +1030,8 @@ inline void getServerVersion(std::shared_ptr<COOLWebSocket>& socket,
     getServerVersion(*socket, major, minor, testname);
 }
 
-inline bool svgMatch(const char *testname, const std::vector<char> &response, const char *templateFile)
+inline bool svgMatch(const std::string& testname, const std::vector<char>& response,
+                     const char* templateFile)
 {
     const std::vector<char> expectedSVG = helpers::readDataFromFile(templateFile);
     if (expectedSVG != response)
@@ -1046,7 +1049,7 @@ inline bool svgMatch(const char *testname, const std::vector<char> &response, co
         TST_LOG_END;
 
         FILE *of = fopen(Poco::Path(TDOC, newName).toString().c_str(), "w");
-        CPPUNIT_ASSERT(fwrite(response.data(), response.size(), 1, of) == response.size());
+        LOK_ASSERT(fwrite(response.data(), response.size(), 1, of) == response.size());
         fclose(of);
         return false;
     }
@@ -1121,7 +1124,7 @@ inline void deleteAll(const std::shared_ptr<http::WebSocketSession>& ws,
                       std::chrono::milliseconds timeoutPerAttempt = std::chrono::seconds(10),
                       int repeat = COMMAND_RETRY_COUNT)
 {
-    selectAll(ws, testname);
+    selectAll(ws, testname, timeoutPerAttempt, repeat);
 
     sendAndWait(ws, testname, "uno .uno:Delete", "textselection:", timeoutPerAttempt, repeat);
 }

@@ -110,7 +110,8 @@ shared_sources = common/FileUtil.cpp \
                  net/HttpRequest.cpp \
                  net/HttpHelper.cpp \
                  net/NetUtil.cpp \
-                 net/Socket.cpp
+                 net/Socket.cpp \
+                 wsd/Exceptions.cpp
 if ENABLE_SSL
 shared_sources += net/Ssl.cpp
 endif
@@ -129,6 +130,7 @@ coolwsd_sources = common/Crypto.cpp \
                   wsd/FileServerUtil.cpp \
                   wsd/RequestDetails.cpp \
                   wsd/Storage.cpp \
+                  wsd/HostUtil.cpp \
                   wsd/TileCache.cpp \
                   wsd/ProofKey.cpp \
                   wsd/QuarantineUtil.cpp
@@ -233,6 +235,7 @@ coolstress_SOURCES = tools/Stress.cpp \
                      $(shared_sources)
 
 coolconfig_SOURCES = tools/Config.cpp \
+		     tools/ConfigMigrationAssistant.cpp \
 		     common/DummyTraceEventEmitter.cpp \
 		     common/Crypto.cpp \
 		     common/Log.cpp \
@@ -261,7 +264,8 @@ wsd_headers = wsd/Admin.hpp \
               wsd/TileDesc.hpp \
               wsd/TraceFile.hpp \
               wsd/UserMessages.hpp \
-              wsd/QuarantineUtil.hpp
+              wsd/QuarantineUtil.hpp \
+              wsd/HostUtil.hpp
 
 shared_headers = common/Common.hpp \
                  common/Clipboard.hpp \
@@ -271,6 +275,7 @@ shared_headers = common/Common.hpp \
                  common/JailUtil.hpp \
                  common/Log.hpp \
                  common/Protocol.hpp \
+                 common/StateEnum.hpp \
                  common/StringVector.hpp \
                  common/Seccomp.hpp \
                  common/Session.hpp \
@@ -323,6 +328,7 @@ noinst_HEADERS = $(wsd_headers) $(shared_headers) $(kit_headers) \
                  test/test.hpp \
                  test/testlog.hpp \
                  test/HttpTestServer.hpp \
+                 test/WOPIUploadConflictCommon.hpp \
                  test/helpers.hpp
 
 dist-hook:
@@ -395,11 +401,11 @@ endif
 $(SYSTEM_STAMP): ${top_srcdir}/coolwsd-systemplate-setup $(CLEANUP_DEPS)
 	$(SET_CAPS_COMMAND)
 	$(CLEANUP_COMMAND)
-	if test "z@SYSTEMPLATE_PATH@" != "z"; then chmod u+w -R "@SYSTEMPLATE_PATH@" ; rm -rf "@SYSTEMPLATE_PATH@" && \
+	if test "z@SYSTEMPLATE_PATH@" != "z"; then chmod u+w -R --silent "@SYSTEMPLATE_PATH@" ; rm -rf "@SYSTEMPLATE_PATH@" && \
 	${top_srcdir}/coolwsd-systemplate-setup "@SYSTEMPLATE_PATH@" "@LO_PATH@" && touch $@; fi
 
 @JAILS_PATH@:
-	$(CLEANUP_COMMAND)
+	@$(CLEANUP_COMMAND)
 	mkdir -p $@
 
 cleanup:
@@ -414,6 +420,8 @@ clean-local:
 	if test "z@JAILS_PATH@" != "z"; then rm -rf "@JAILS_PATH@"; fi
 	if test "z@SYSTEMPLATE_PATH@" != "z"; then rm -rf "@SYSTEMPLATE_PATH@"; fi
 	rm -rf "${top_srcdir}/loleaflet"
+	rm -rf loolconfig loolconvert loolforkit loolmap loolmount # kill old binaries
+	rm -rf loolwsd loolwsd_fuzzer loolstress loolsocketdump
 
 if ENABLE_DEBUG
 # can write to /tmp/coolwsd.log
@@ -593,3 +601,18 @@ install-exec-hook:
 	$(LN_S) coolconfig loolconfig && \
 	$(LN_S) coolwsd loolwsd && \
 	$(LN_S) coolwsd-systemplate-setup loolwsd-systemplate-setup
+
+stress_file=$(abs_top_srcdir)/test/data/hello-world.odt
+trace_dir=$(abs_top_srcdir)/test/traces
+stress:
+	@cp $(abs_top_srcdir)/test/data/hello.odt $(stress_file)
+	@echo "Watch at: https://localhost:9980/browser/12345/cool.html?file_path=$(stress_file)"
+	./coolstress wss://localhost:9980 \
+		$(stress_file) $(trace_dir)/writer-quick.txt \
+		$(stress_file) $(trace_dir)/writer-add-bullet.txt \
+		$(stress_file) $(trace_dir)/writer-mash-text-table.txt \
+		$(stress_file) $(trace_dir)/writer-document-edit.txt \
+		$(stress_file) $(trace_dir)/writer-mash-text-table.txt \
+		$(stress_file) $(trace_dir)/writer-hello-shape.txt \
+		$(stress_file) $(trace_dir)/writer-quick.txt
+

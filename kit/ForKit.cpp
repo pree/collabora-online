@@ -125,7 +125,7 @@ protected:
         if (UnitKit::get().filterKitMessage(this, message))
             return;
 #endif
-        StringVector tokens = Util::tokenize(message);
+        StringVector tokens = StringVector::tokenize(message);
         Log::StreamLogger logger = Log::debug();
         if (logger.enabled())
         {
@@ -278,6 +278,9 @@ static void cleanupChildren()
     int status = 0;
     int segFaultCount = 0;
 
+    LOG_TRC("cleanupChildren with " << childJails.size()
+                                    << (childJails.size() == 1 ? " child" : " children"));
+
     // Reap quickly without doing slow cleanup so WSD can spawn more rapidly.
     while ((exitedChildPid = waitpid(-1, &status, WUNTRACED | WNOHANG)) > 0)
     {
@@ -302,6 +305,16 @@ static void cleanupChildren()
         {
             LOG_ERR("Unknown child " << exitedChildPid << " has exited");
         }
+    }
+
+    if (Log::traceEnabled())
+    {
+        std::ostringstream oss;
+        for (const auto& pair : childJails)
+            oss << pair.first << ' ';
+
+        LOG_TRC("cleanupChildren reaped " << cleanupJailPaths.size() << " children to have "
+                                          << childJails.size() << " left: " << oss.str());
     }
 
     if (segFaultCount)
@@ -414,6 +427,8 @@ void forkLibreOfficeKit(const std::string& childRoot,
                         const std::string& loSubPath,
                         int limit)
 {
+    LOG_TRC("forkLibreOfficeKit limit: " << limit);
+
     // Cleanup first, to reduce disk load.
     cleanupChildren();
 
@@ -595,7 +610,7 @@ int main(int argc, char** argv)
         {
             eq = std::strchr(cmd, '=');
             const std::string rlimits = std::string(eq+1);
-            StringVector tokens = Util::tokenize(rlimits, ';');
+            StringVector tokens = StringVector::tokenize(rlimits, ';');
             for (const auto& cmdLimit : tokens)
             {
                 const std::pair<std::string, std::string> pair = Util::split(tokens.getParam(cmdLimit), ':');
@@ -608,6 +623,10 @@ int main(int argc, char** argv)
                     LOG_ERR("Unknown rlimits command: " << tokens.getParam(cmdLimit));
                 }
             }
+        }
+        else if (std::strstr(cmd, "--unattended") == cmd)
+        {
+            SigUtil::setUnattended();
         }
 #if ENABLE_DEBUG
         // this process has various privileges - don't run arbitrary code.
@@ -640,6 +659,8 @@ int main(int argc, char** argv)
         {
             eq = std::strchr(cmd, '=');
             UserInterface = std::string(eq+1);
+            if (UserInterface != "classic" && UserInterface != "notebookbar")
+                UserInterface = "notebookbar";
         }
     }
 
@@ -691,6 +712,7 @@ int main(int argc, char** argv)
     // Parse the configuration.
     const auto conf = std::getenv("COOL_CONFIG");
     config::initialize(std::string(conf ? conf : std::string()));
+    EnableExperimental = config::getBool("experimental_features", false);
 #endif
 
     Util::setThreadName("forkit");
@@ -723,12 +745,17 @@ int main(int argc, char** argv)
     WSHandler = std::make_shared<ServerWSHandler>("forkit_ws");
 
 #if !MOBILEAPP
-    mainPoll.insertNewUnixSocket(MasterLocation, FORKIT_URI, WSHandler);
+    if (!mainPoll.insertNewUnixSocket(MasterLocation, FORKIT_URI, WSHandler))
+    {
+        LOG_SFL("Failed to connect to WSD. Will exit.");
+        Util::forcedExit(EX_SOFTWARE);
+    }
 #endif
 
     SigUtil::setUserSignals();
 
-    LOG_INF("ForKit process is ready.");
+    const int parentPid = getppid();
+    LOG_INF("ForKit process is ready. Parent: " << parentPid);
 
     while (!SigUtil::getTerminationFlag())
     {
@@ -737,6 +764,13 @@ int main(int argc, char** argv)
         mainPoll.poll(std::chrono::microseconds(POLL_TIMEOUT_MICRO_S));
 
         SigUtil::checkDumpGlobalState(dump_forkit_state);
+
+        // When our parent exits, we are assigned a new parent (typically init).
+        if (getppid() != parentPid)
+        {
+            LOG_SFL("Parent process has died. Will exit now.");
+            break;
+        }
 
 #if ENABLE_DEBUG
         if (!SingleKit)
@@ -747,14 +781,8 @@ int main(int argc, char** argv)
     int returnValue = EX_OK;
     UnitKit::get().returnValue(returnValue);
 
-#if 0
-    int status = 0;
-    waitpid(forKitPid, &status, WUNTRACED);
-#endif
-
     LOG_INF("ForKit process finished.");
-    Log::shutdown();
-    std::_Exit(returnValue);
+    Util::forcedExit(returnValue);
 }
 #endif
 

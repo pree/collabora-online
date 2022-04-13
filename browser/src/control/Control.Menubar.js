@@ -13,6 +13,7 @@ L.Control.MenubarShortcuts = {
 		CUT: 'Ctrl + X',
 		COPY: 'Ctrl + C',
 		PASTE: 'Ctrl + V',
+		PASTE_SPECIAL: 'Ctrl + Shift + Alt + V',
 		SELECT_ALL: 'Ctrl + A',
 		COMMENT: 'Ctrl + Alt + C',
 		FOOTNOTE: 'Ctrl + Alt + F',
@@ -32,12 +33,18 @@ L.Control.MenubarShortcuts = {
 	},
 
 	addShortcut: function (text, shortcut) {
-		var newText = _(text).replace('~', '') + ' (' + _(shortcut).replace('~', '') + ')';
-
-		// sometimes ''.toLocaleString() doesn't correctly translate the shortcut
-		if (window.lang && window.lang.toLowerCase() === 'de') {
-			newText = newText.replace('Ctrl', 'Strg');
+		// localize shortcut
+		if (String.locale.startsWith('de') || String.locale.startsWith('dsb') || String.locale.startsWith('hsb')) {
+			shortcut = shortcut.replace('Ctrl', 'Strg');
 		}
+		if (String.locale.startsWith('lt')) {
+			shortcut = shortcut.replace('Ctrl', 'Vald');
+		}
+		if (String.locale.startsWith('sl')) {
+			shortcut = shortcut.replace('Ctrl', 'Krmilka').replace('Alt', 'izmenjalka').replace('Shift', 'dvigalka');
+		}
+
+		var newText = _(text).replace('~', '') + ' (' + L.Util.replaceCtrlAltInMac(shortcut) + ')';
 
 		return newText;
 	}
@@ -79,6 +86,7 @@ L.Control.Menubar = L.Control.extend({
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Cut', 'text'), L.Control.MenubarShortcuts.shortcuts.CUT), uno: '.uno:Cut'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Copy', 'text'), L.Control.MenubarShortcuts.shortcuts.COPY), uno: '.uno:Copy'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Paste', 'text'), L.Control.MenubarShortcuts.shortcuts.PASTE), uno: '.uno:Paste'},
+				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:PasteSpecial', 'text'), L.Control.MenubarShortcuts.shortcuts.PASTE_SPECIAL), uno: '.uno:PasteSpecial'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:SelectAll', 'text'), L.Control.MenubarShortcuts.shortcuts.SELECT_ALL), uno: '.uno:SelectAll'},
 				{type: 'separator'},
 				{uno: '.uno:SearchDialog'},
@@ -118,6 +126,8 @@ L.Control.Menubar = L.Control.extend({
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:InsertAnnotation', 'text'), L.Control.MenubarShortcuts.shortcuts.COMMENT), id: 'insertcomment', type: 'action'},
 				{uno: '.uno:InsertObjectChart'},
 				{name: _UNO('.uno:FontworkGalleryFloater'), uno: '.uno:FontworkGalleryFloater'},
+				{name: _UNO('.uno:DrawText'), uno: '.uno:DrawText'},
+				{name: _UNO('.uno:VerticalText'), uno: '.uno:VerticalText'},
 				{type: 'separator'},
 				{uno: '.uno:InsertSection', id: 'insertsection'},
 				{name: _UNO('.uno:InsertField', 'text'), type: 'menu', menu: [
@@ -264,6 +274,7 @@ L.Control.Menubar = L.Control.extend({
 					{uno: '.uno:EntireRow'},
 					{uno: '.uno:EntireColumn'},
 					{uno: '.uno:EntireCell'}]},
+				{uno: '.uno:SplitCell'},
 				{uno: '.uno:MergeCells'},
 				{type: 'separator'},
 				{uno: '.uno:TableDialog'}
@@ -281,6 +292,7 @@ L.Control.Menubar = L.Control.extend({
 						{name: _('None (Do not check spelling)'), id: 'nonelanguage', uno: '.uno:LanguageStatus?Language:string=Default_LANGUAGE_NONE'}]}
 				]},
 				{uno: '.uno:WordCountDialog'},
+				{uno: '.uno:AccessibilityCheck'},
 				{type: 'separator'},
 				{name: _UNO('.uno:AutoFormatMenu', 'text'), type: 'menu', menu: [
 					{uno: '.uno:OnlineAutoFormat'}]},
@@ -292,6 +304,7 @@ L.Control.Menubar = L.Control.extend({
 				{name: _UNO('.uno:RunMacro'), id: 'runmacro', uno: '.uno:RunMacro'}
 			]},
 			{name: _UNO('.uno:HelpMenu', 'text'), id: 'help', type: 'menu', menu: [
+				{name: _('Forum'), id: 'forum', type: 'action'},
 				{name: _('Online Help'), id: 'online-help', type: 'action', iosapp: false},
 				{name: L.Control.MenubarShortcuts.addShortcut(_('Keyboard shortcuts'), L.Control.MenubarShortcuts.shortcuts.KEYBOARD_SHORTCUTS), id: 'keyboard-shortcuts', type: 'action', iosapp: false},
 				{name: _('Report an issue'), id: 'report-an-issue', type: 'action', iosapp: false},
@@ -327,6 +340,7 @@ L.Control.Menubar = L.Control.extend({
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Cut', 'presentation'), L.Control.MenubarShortcuts.shortcuts.CUT), uno: '.uno:Cut'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Copy', 'presentation'), L.Control.MenubarShortcuts.shortcuts.COPY), uno: '.uno:Copy'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Paste', 'presentation'), L.Control.MenubarShortcuts.shortcuts.PASTE), uno: '.uno:Paste'},
+				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:PasteSpecial', 'presentation'), L.Control.MenubarShortcuts.shortcuts.PASTE_SPECIAL), uno: '.uno:PasteSpecial'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:SelectAll', 'presentation'), L.Control.MenubarShortcuts.shortcuts.SELECT_ALL), uno: '.uno:SelectAll'},
 				{type: 'separator'},
 				{uno: '.uno:SearchDialog'}
@@ -355,6 +369,8 @@ L.Control.Menubar = L.Control.extend({
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:InsertAnnotation', 'presentation'), L.Control.MenubarShortcuts.shortcuts.COMMENT), id: 'insertcomment', type: 'action'},
 				{uno: '.uno:InsertObjectChart'},
 				{name: _UNO('.uno:FontworkGalleryFloater'), uno: '.uno:FontworkGalleryFloater'},
+				{name: _UNO('.uno:DrawText'), uno: '.uno:DrawText'},
+				{name: _UNO('.uno:VerticalText'), uno: '.uno:VerticalText'},
 				{type: 'separator'},
 				{name: _UNO('.uno:HyperlinkDialog'), id: 'inserthyperlink', type: 'action'},
 				{type: 'separator'},
@@ -368,15 +384,15 @@ L.Control.Menubar = L.Control.extend({
 					{uno: '.uno:InsertTimeFieldFix'},
 					{uno: '.uno:InsertTimeFieldVar'},
 					{type: 'separator'},
-					{name: _UNO('.uno:InsertSlideField', 'presentation'), id: 'insertslidefield', type: 'action'},
-					{name: _UNO('.uno:InsertSlideTitleField', 'presentation'), id: 'insertslidetitlefield', type: 'action'},
-					{name: _UNO('.uno:InsertSlidesField', 'presentation'), id: 'insertslidesfield', type: 'action'},
+					{name: _UNO('.uno:InsertSlideField', 'presentation'), uno: '.uno:InsertPageField'},
+					{name: _UNO('.uno:InsertSlideTitleField', 'presentation'), uno: '.uno:InsertPageTitleField'},
+					{name: _UNO('.uno:InsertSlidesField', 'presentation'), uno: '.uno:InsertPagesField'},
 				]},
 			]},
 			{name: _UNO('.uno:FormatMenu', 'presentation'), id: 'format', type: 'menu', menu: [
 				{uno: '.uno:FontDialog'},
 				{uno: '.uno:ParagraphDialog'},
-				{uno: '.uno:PageSetup'},
+				{name: _UNO('.uno:SlideSetup', 'presentation'), uno: '.uno:PageSetup'},
 				{type: 'separator'},
 				{uno: '.uno:TransformDialog'},
 				{uno: '.uno:FormatLine'},
@@ -454,6 +470,7 @@ L.Control.Menubar = L.Control.extend({
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Cut', 'presentation'), L.Control.MenubarShortcuts.shortcuts.CUT), uno: '.uno:Cut'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Copy', 'presentation'), L.Control.MenubarShortcuts.shortcuts.COPY), uno: '.uno:Copy'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Paste', 'presentation'), L.Control.MenubarShortcuts.shortcuts.PASTE), uno: '.uno:Paste'},
+				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:PasteSpecial', 'presentation'), L.Control.MenubarShortcuts.shortcuts.PASTE_SPECIAL), uno: '.uno:PasteSpecial'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:SelectAll', 'presentation'), L.Control.MenubarShortcuts.shortcuts.SELECT_ALL), uno: '.uno:SelectAll'},
 				{type: 'separator'},
 				{uno: '.uno:SearchDialog'}
@@ -480,20 +497,20 @@ L.Control.Menubar = L.Control.extend({
 				{uno: '.uno:InsertSymbol'},
 				{type: 'separator'},
 				{name: _UNO('.uno:InsertField', 'text'), id: 'insertfield', type: 'menu', menu: [
-					{uno: '.uno:InsertDateFieldFix'},
-					{uno: '.uno:InsertDateFieldVar'},
-					{uno: '.uno:InsertTimeFieldFix'},
-					{uno: '.uno:InsertTimeFieldVar'},
+					{name: _UNO('.uno:InsertDateFieldFix', 'presentation'), uno: '.uno:InsertDateFieldFix'},
+					{name: _UNO('.uno:InsertDateFieldVar', 'presentation'), uno: '.uno:InsertDateFieldVar'},
+					{name: _UNO('.uno:InsertTimeFieldFix', 'presentation'), uno: '.uno:InsertTimeFieldFix'},
+					{name: _UNO('.uno:InsertTimeFieldVar', 'presentation'), uno: '.uno:InsertTimeFieldVar'},
 					{type: 'separator'},
-					{name: _UNO('.uno:InsertSlideField', 'presentation'), id: 'insertslidefield', type: 'action'},
-					{name: _UNO('.uno:InsertSlideTitleField', 'presentation'), id: 'insertslidetitlefield', type: 'action'},
-					{name: _UNO('.uno:InsertSlidesField', 'presentation'), id: 'insertslidesfield', type: 'action'},
+					{name: _UNO('.uno:InsertPageField', 'presentation'), uno: '.uno:InsertPageField'},
+					{name: _UNO('.uno:InsertPageTitleField', 'presentation'), uno: '.uno:InsertPageTitleField'},
+					{name: _UNO('.uno:InsertPagesField', 'presentation'), uno: '.uno:InsertPagesField'},
 				]},
 			]},
 			{name: _UNO('.uno:FormatMenu', 'presentation'), id: 'format', type: 'menu', menu: [
 				{uno: '.uno:FontDialog'},
 				{uno: '.uno:ParagraphDialog'},
-				{uno: '.uno:PageSetup'},
+				{name: _UNO('.uno:PageSetup', 'presentation'), uno: '.uno:PageSetup'},
 				{type: 'separator'},
 				{uno: '.uno:TransformDialog'},
 				{uno: '.uno:FormatLine'},
@@ -504,25 +521,25 @@ L.Control.Menubar = L.Control.extend({
 			{name: _UNO('.uno:TableMenu', 'text'/*HACK should be 'presentation', but not in xcu*/), type: 'menu', menu: [
 				{name: _UNO('.uno:InsertTable', 'text'), uno: '.uno:InsertTable'},
 				{name: _UNO('.uno:TableInsertMenu', 'text'/*HACK should be 'presentation', but not in xcu*/), type: 'menu', menu: [
-					{uno: '.uno:InsertRowsBefore'},
-					{uno: '.uno:InsertRowsAfter'},
+					{name: _UNO('.uno:InsertRowsBefore', 'presentation'), uno: '.uno:InsertRowsBefore'},
+					{name: _UNO('.uno:InsertRowsAfter', 'presentation'), uno: '.uno:InsertRowsAfter'},
 					{type: 'separator'},
-					{uno: '.uno:InsertColumnsBefore'},
-					{uno: '.uno:InsertColumnsAfter'}]},
+					{name: _UNO('.uno:InsertColumnsBefore', 'presentation'), uno: '.uno:InsertColumnsBefore'},
+					{name: _UNO('.uno:InsertColumnsAfter', 'presentation'), uno: '.uno:InsertColumnsAfter'}]},
 				{name: _UNO('.uno:TableDeleteMenu', 'text'/*HACK should be 'presentation', but not in xcu*/), type: 'menu', menu: [
-					{uno: '.uno:DeleteRows'},
-					{uno: '.uno:DeleteColumns'},
-					{uno: '.uno:DeleteTable'}]},
+					{name: _UNO('.uno:DeleteRows', 'presentation'), uno: '.uno:DeleteRows'},
+					{name: _UNO('.uno:DeleteColumns', 'presentation'), uno: '.uno:DeleteColumns'},
+					{name: _UNO('.uno:DeleteTable', 'presentation'), uno: '.uno:DeleteTable'}]},
 				{name: _UNO('.uno:TableSelectMenu', 'text'), type: 'menu', menu: [
-					{uno: '.uno:SelectTable'},
-					{uno: '.uno:EntireRow'},
-					{uno: '.uno:EntireColumn'}]},
-				{uno: '.uno:MergeCells'},
-				{uno: '.uno:TableDialog'}]
+					{name: _UNO('.uno:SelectTable', 'presentation'), uno: '.uno:SelectTable'},
+					{name: _UNO('.uno:EntireRow', 'presentation'), uno: '.uno:EntireRow'},
+					{name: _UNO('.uno:EntireColumn', 'presentation'), uno: '.uno:EntireColumn'}]},
+				{name: _UNO('.uno:MergeCells', 'presentation'), uno: '.uno:MergeCells'},
+				{name: _UNO('.uno:TableDialog', 'presentation'), uno: '.uno:TableDialog'}]
 			},
 			{name: _UNO('.uno:PageMenu', 'presentation'), type: 'menu', menu: [
 				{name: _UNO('.uno:InsertPage', 'presentation'), id: 'insertpage', type: 'action'},
-				{name: _UNO('.uno:DuplicatePage', 'presentation'), id: 'duplicatedrawpage', type: 'action'},
+				{name: _UNO('.uno:DuplicatePage', 'presentation'), id: 'duplicatepage', type: 'action'},
 				{name: _UNO('.uno:DeletePage', 'presentation'), id: 'deletepage', type: 'action'}]
 			},
 			{name: _UNO('.uno:ToolsMenu', 'presentation'), id: 'tools', type: 'menu', menu: [
@@ -566,6 +583,7 @@ L.Control.Menubar = L.Control.extend({
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Cut', 'text'), L.Control.MenubarShortcuts.shortcuts.CUT), uno: '.uno:Cut'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Copy', 'text'), L.Control.MenubarShortcuts.shortcuts.COPY), uno: '.uno:Copy'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:Paste', 'text'), L.Control.MenubarShortcuts.shortcuts.PASTE), uno: '.uno:Paste'},
+				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:PasteSpecial', 'text'), L.Control.MenubarShortcuts.shortcuts.PASTE_SPECIAL), uno: '.uno:PasteSpecial'},
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:SelectAll', 'text'), L.Control.MenubarShortcuts.shortcuts.SELECT_ALL), uno: '.uno:SelectAll'},
 				{type: 'separator'},
 				{uno: '.uno:SearchDialog'}
@@ -584,6 +602,7 @@ L.Control.Menubar = L.Control.extend({
 				]},
 				{type: 'separator'},
 				{uno: '.uno:Sidebar'},
+				{name: _('Show Status Bar'), id: 'showstatusbar', type: 'action'}
 			]},
 			{name: _UNO('.uno:InsertMenu', 'spreadsheet'), id: 'insert', type: 'menu', menu: [
 				{name: _('Local Image...'), id: 'insertgraphic', type: 'action'},
@@ -592,6 +611,8 @@ L.Control.Menubar = L.Control.extend({
 				{name: L.Control.MenubarShortcuts.addShortcut(_UNO('.uno:InsertAnnotation', 'spreadsheet'), L.Control.MenubarShortcuts.shortcuts.COMMENT), id: 'insertcomment', type: 'action'},
 				{uno: '.uno:InsertObjectChart'},
 				{name: _UNO('.uno:FontworkGalleryFloater'), uno: '.uno:FontworkGalleryFloater'},
+				{name: _UNO('.uno:DrawText'), uno: '.uno:DrawText'},
+				{name: _UNO('.uno:VerticalText'), uno: '.uno:VerticalText'},
 				{uno: '.uno:FunctionDialog'},
 				{type: 'separator'},
 				{name: _UNO('.uno:HyperlinkDialog'), id: 'inserthyperlink', type: 'action'},
@@ -649,6 +670,9 @@ L.Control.Menubar = L.Control.extend({
 				{type: 'separator'},
 				{uno: '.uno:FormatPaintbrush'},
 				{uno: '.uno:ResetAttributes'},
+				{name: _UNO('.uno:PrintRangesFormatMenu', 'spreadsheet'), type: 'menu', menu: [
+					{uno: '.uno:DefinePrintArea'},
+					{uno: '.uno:DeletePrintArea'}]},
 				{name: _UNO('.uno:ConditionalFormatMenu', 'spreadsheet'), type: 'menu', menu: [
 					{uno: '.uno:ConditionalFormatDialog'},
 					{uno: '.uno:ColorScaleFormatDialog'},
@@ -659,6 +683,12 @@ L.Control.Menubar = L.Control.extend({
 					{uno: '.uno:ConditionalFormatManagerDialog'}]},
 				{type: 'separator'},
 				{uno: '.uno:FormatCellDialog'},
+				{name: _UNO('.uno:RowFormatMenu', 'spreadsheet'), type: 'menu', menu: [
+					{uno: '.uno:RowHeight'},
+					{uno: '.uno:SetOptimalRowHeight'}]},
+				{name: _UNO('.uno:ColumnFormatMenu', 'spreadsheet'), type: 'menu', menu: [
+					{uno: '.uno:ColumnWidth'},
+					{uno: '.uno:SetOptimalColumnWidth'}]},
 				{uno: '.uno:FontDialog'},
 				{uno: '.uno:ParagraphDialog'},
 				{uno: '.uno:PageFormatDialog'},
@@ -888,19 +918,19 @@ L.Control.Menubar = L.Control.extend({
 				{uno: '.uno:SelectAll'}
 			]},
 			{name: _UNO('.uno:TableMenu', 'text'/*HACK should be 'presentation', but not in xcu*/), id: 'tablemenu', type: 'menu', menu: [
-				{uno: '.uno:InsertRowsBefore'},
-				{uno: '.uno:InsertRowsAfter'},
+				{name: _UNO('.uno:InsertRowsBefore', 'presentation'), uno: '.uno:InsertRowsBefore'},
+				{name: _UNO('.uno:InsertRowsAfter', 'presentation'), uno: '.uno:InsertRowsAfter'},
 				{type: 'separator'},
-				{uno: '.uno:InsertColumnsBefore'},
-				{uno: '.uno:InsertColumnsAfter'},
-				{uno: '.uno:DeleteRows'},
-				{uno: '.uno:DeleteColumns'},
-				{uno: '.uno:MergeCells'}]
+				{name: _UNO('.uno:InsertColumnsBefore', 'presentation'), uno: '.uno:InsertColumnsBefore'},
+				{name: _UNO('.uno:InsertColumnsAfter', 'presentation'), uno: '.uno:InsertColumnsAfter'},
+				{name: _UNO('.uno:DeleteRows', 'presentation'), uno: '.uno:DeleteRows'},
+				{name: _UNO('.uno:DeleteColumns', 'presentation'), uno: '.uno:DeleteColumns'},
+				{name: _UNO('.uno:MergeCells', 'presentation'), uno: '.uno:MergeCells'}]
 			},
-			{name: _UNO('.uno:SlideMenu', 'presentation'), id: 'slidemenu', type: 'menu', menu: [
-				{name: _UNO('.uno:InsertSlide', 'presentation'), id: 'insertpage', type: 'action'},
-				{name: _UNO('.uno:DuplicateSlide', 'presentation'), id: 'duplicatepage', type: 'action'},
-				{name: _UNO('.uno:DeleteSlide', 'presentation'), id: 'deletepage', type: 'action'}]
+			{name: _UNO('.uno:PageMenu', 'presentation'), id: 'pagemenu', type: 'menu', menu: [
+				{name: _UNO('.uno:InsertPage', 'presentation'), id: 'insertpage', type: 'action'},
+				{name: _UNO('.uno:DuplicatePage', 'presentation'), id: 'duplicatepage', type: 'action'},
+				{name: _UNO('.uno:DeletePage', 'presentation'), id: 'deletepage', type: 'action'}]
 			},
 			{uno: '.uno:SpellOnline'},
 			{name: _UNO('.uno:RunMacro'), id: 'runmacro', uno: '.uno:RunMacro'},
@@ -1054,32 +1084,32 @@ L.Control.Menubar = L.Control.extend({
 						{uno: '.uno:InsertTimeFieldFix'},
 						{uno: '.uno:InsertTimeFieldVar'},
 						{type: 'separator'},
-						{name: _UNO('.uno:InsertSlideField', 'presentation'), id: 'insertslidefield', type: 'action'},
-						{name: _UNO('.uno:InsertSlideTitleField', 'presentation'), id: 'insertslidetitlefield', type: 'action'},
-						{name: _UNO('.uno:InsertSlidesField', 'presentation'), id: 'insertslidesfield', type: 'action'},
+						{name: _UNO('.uno:InsertSlideField', 'presentation'), uno: '.uno:InsertPageField'},
+						{name: _UNO('.uno:InsertSlideTitleField', 'presentation'), uno: '.uno:InsertPageTitleField'},
+						{name: _UNO('.uno:InsertSlidesField', 'presentation'), uno: '.uno:InsertPagesField'},
 					]},
 				]
 			},
 			drawing : {
-				name: _UNO('.uno:InsertMenu', 'drawing'), id: 'insert', type: 'menu', menu: [
+				name: _UNO('.uno:InsertMenu', 'presentation'), id: 'insert', type: 'menu', menu: [
 					{name: _('Local Image...'), id: 'insertgraphic', type: 'action'},
-					{name: _UNO('.uno:InsertGraphic', 'drawing'), id: 'insertgraphicremote', type: 'action'},
+					{name: _UNO('.uno:InsertGraphic', 'presentation'), id: 'insertgraphicremote', type: 'action'},
 					{uno: '.uno:InsertObjectChart'},
-					{name: _UNO('.uno:InsertAnnotation', 'drawing'), id: 'insertcomment', type: 'action'},
+					{name: _UNO('.uno:InsertAnnotation', 'presentation'), id: 'insertcomment', type: 'action'},
 					{name: _UNO('.uno:TableMenu'), id: 'inserttable', type: 'action'},
 					{name: _UNO('.uno:HyperlinkDialog'), id: 'inserthyperlink', type: 'action'},
 					{name: _UNO('.uno:ShapesMenu'), id: 'insertshape', type: 'action'},
 					{name: _UNO('.uno:FontworkGalleryFloater'), uno: '.uno:FontworkGalleryFloater'},
-					{name: _UNO('.uno:Text', 'drawing'), id: 'inserttextbox', type: 'action'},
+					{name: _UNO('.uno:Text', 'presentation'), id: 'inserttextbox', type: 'action'},
 					{name: _UNO('.uno:InsertField', 'text'), id: 'insertfield', type: 'menu', menu: [
-						{uno: '.uno:InsertDateFieldFix'},
-						{uno: '.uno:InsertDateFieldVar'},
-						{uno: '.uno:InsertTimeFieldFix'},
-						{uno: '.uno:InsertTimeFieldVar'},
+						{name: _UNO('.uno:InsertDateFieldFix', 'presentation'), uno: '.uno:InsertDateFieldFix'},
+						{name: _UNO('.uno:InsertDateFieldVar', 'presentation'), uno: '.uno:InsertDateFieldVar'},
+						{name: _UNO('.uno:InsertTimeFieldFix', 'presentation'), uno: '.uno:InsertTimeFieldFix'},
+						{name: _UNO('.uno:InsertTimeFieldVar', 'presentation'), uno: '.uno:InsertTimeFieldVar'},
 						{type: 'separator'},
-						{name: _UNO('.uno:InsertSlideField', 'drawing'), id: 'insertslidefield', type: 'action'},
-						{name: _UNO('.uno:InsertSlideTitleField', 'drawing'), id: 'insertslidetitlefield', type: 'action'},
-						{name: _UNO('.uno:InsertSlidesField', 'drawing'), id: 'insertslidesfield', type: 'action'},
+						{name: _UNO('.uno:InsertPageField', 'presentation'), uno: '.uno:InsertPageField'},
+						{name: _UNO('.uno:InsertPageTitleField', 'presentation'), uno: '.uno:InsertPageTitleField'},
+						{name: _UNO('.uno:InsertPagesField', 'presentation'), uno: '.uno:InsertPagesField'},
 					]},
 				]
 			}
@@ -1260,6 +1290,7 @@ L.Control.Menubar = L.Control.extend({
 			showFunction: null,
 			showTimeout: 0,
 			collapsibleHideDuration: 0,
+			collapsibleHideFunction: null,
 			subIndicatorsPos: 'append',
 			subIndicatorsText: '&#8250;'
 		});
@@ -1341,7 +1372,7 @@ L.Control.Menubar = L.Control.extend({
 							// will never be invoked on non-mobile browsers? I might be wrong though.
 							// If you notice this logging, please modify this comment to indicate what is
 							// going on.
-							console.log('======> Assertion failed!? Not window.mode.isMobile()? Control.Menubar.js #1');
+							window.app.console.log('======> Assertion failed!? Not window.mode.isMobile()? Control.Menubar.js #1');
 							$nav.css({height: 'initial', bottom: '38px'});
 							$menu.hide().slideDown(250, function() { $menu.css('display', ''); });
 							$('#mobile-wizard-header').show();
@@ -1351,16 +1382,20 @@ L.Control.Menubar = L.Control.extend({
 							self._map.fire('mobilewizard', {data: menuData});
 							$('#toolbar-hamburger').removeClass('menuwizard-closed').addClass('menuwizard-opened');
 							$('#mobile-wizard-header').hide();
+							$('#toolbar-mobile-back').hide();
+							$('#formulabar').hide();
 						}
 					} else if (!window.mode.isMobile()) {
 						// Ditto.
-						console.log('======> Assertion failed!? Not window.mode.isMobile()? Control.Menubar.js #2');
+						window.app.console.log('======> Assertion failed!? Not window.mode.isMobile()? Control.Menubar.js #2');
 						$menu.show().slideUp(250, function() { $menu.css('display', ''); });
 						$nav.css({height:'', bottom: ''});
 					} else {
 						window.mobileMenuWizard = false;
 						self._map.fire('closemobilewizard');
 						$('#toolbar-hamburger').removeClass('menuwizard-opened').addClass('menuwizard-closed');
+						$('#toolbar-mobile-back').show();
+						$('#formulabar').show();
 					}
 				});
 				// hide mobile menu beforeunload
@@ -1386,6 +1421,10 @@ L.Control.Menubar = L.Control.extend({
 		}
 	},
 
+	_onMouseOut: function() {
+		$('.main-nav.hasnotebookbar').css('overflow', 'scroll hidden');
+		$('.notebookbar-scroll-wrapper').css('overflow', '');
+	},
 	_checkedMenu: function(uno, item) {
 		var constChecked = 'lo-menu-item-checked';
 		var state = this._map['stateChangeHandler'].getItemValue(uno);
@@ -1399,6 +1438,8 @@ L.Control.Menubar = L.Control.extend({
 	},
 
 	_beforeShow: function(e, menu) {
+		$('.main-nav.hasnotebookbar').css('overflow', 'visible');
+		$('.notebookbar-scroll-wrapper').css('overflow', 'visible');
 		var self = e.data.self;
 		var items = $(menu).children().children('a').not('.has-submenu');
 		$(items).each(function() {
@@ -1418,7 +1459,7 @@ L.Control.Menubar = L.Control.extend({
 					var itemState = self._map[constState].getItemValue(unoCommand);
 					if (itemState === 'disabled') {
 						if (unoCommand.startsWith('.uno:Paste')) {
-							console.log('do not disable paste based on server side data');
+							window.app.console.log('do not disable paste based on server side data');
 						} else {
 							$(aItem).addClass('disabled');
 						}
@@ -1568,7 +1609,8 @@ L.Control.Menubar = L.Control.extend({
 		if (id === 'save') {
 			// Save only when not read-only.
 			if (!this._map.isPermissionReadOnly()) {
-				this._map.fire('postMessage', {msgId: 'UI_Save'});
+				this._map.fire('postMessage', {msgId: 'UI_Save', args: { source: 'filemenu' }});
+
 				if (!this._map._disableDefaultAction['UI_Save']) {
 					this._map.save(false, false);
 				}
@@ -1628,8 +1670,15 @@ L.Control.Menubar = L.Control.extend({
 			this._map.duplicatePage();
 		} else if (id === 'deletepage') {
 			var map = this._map;
+			var msg;
+			if (map.getDocType() === 'presentation') {
+				msg = _('Are you sure you want to delete this slide?');
+			}
+			else { /* drawing */
+				msg = _('Are you sure you want to delete this page?');
+			}
 			vex.dialog.open({
-				message: _('Are you sure you want to delete this slide?'),
+				message: msg,
 				buttons: [
 					$.extend({}, vex.dialog.buttons.YES, { text: _('OK') }),
 					$.extend({}, vex.dialog.buttons.NO, { text: _('Cancel') })
@@ -1642,12 +1691,14 @@ L.Control.Menubar = L.Control.extend({
 			});
 		} else if (id === 'about') {
 			this._map.showLOAboutDialog();
-		} else if (id === 'latestupdates') {
-			this._map.showWelcomeDialog(/*calledFromMenu=*/true);
+		} else if (id === 'latestupdates' && this._map.welcome) {
+			this._map.welcome.showWelcomeDialog();
 		} else if (id === 'feedback' && this._map.feedback) {
 			this._map.feedback.showFeedbackDialog();
 		} else if (id === 'report-an-issue') {
 			window.open('https://github.com/CollaboraOnline/online/issues', '_blank');
+		} else if (id === 'forum') {
+			window.open('https://forum.collaboraonline.com', '_blank');
 		} else if (id === 'inserthyperlink') {
 			this._map.showHyperlinkDialog();
 		} else if (id === 'keyboard-shortcuts' || id === 'online-help') {
@@ -1669,12 +1720,6 @@ L.Control.Menubar = L.Control.extend({
 			}
 		} else if (id === 'inserttextbox') {
 			this._map.sendUnoCommand('.uno:Text?CreateDirectly:bool=true');
-		} else if (id === 'insertslidefield') {
-			this._map.sendUnoCommand('.uno:InsertPageField');
-		} else if (id === 'insertslidetitlefield') {
-			this._map.sendUnoCommand('.uno:InsertPageTitleField');
-		} else if (id === 'insertslidesfield') {
-			this._map.sendUnoCommand('.uno:InsertPagesField');
 		} else if (id === 'pagesetup') {
 			this._map.sendUnoCommand('.uno:SidebarShow');
 			this._map.sendUnoCommand('.uno:LOKSidebarWriterPage');
@@ -1709,8 +1754,8 @@ L.Control.Menubar = L.Control.extend({
 	},
 
 	_onItemSelected: function(e, item) {
-		// TODO: Find a way to disable click/select events for freemium elements in disableFreemiumItem
-		if ($(item).data('freemiumDenied') === true)
+		// TODO: Find a way to disable click/select events for locked elements in disableLockedItem
+		if ($(item).data('locked') === true)
 			return;
 
 		var self = e.data.self;
@@ -1923,7 +1968,7 @@ L.Control.Menubar = L.Control.extend({
 			}
 
 			this._map.hideRestrictedItems(menu[i], aItem, aItem);
-			this._map.disableFreemiumItem(menu[i], aItem, aItem);
+			this._map.disableLockedItem(menu[i], aItem, aItem);
 			itemList.push(liItem);
 		}
 
@@ -2019,6 +2064,9 @@ L.Control.Menubar = L.Control.extend({
 				itemType = 'submenu';
 			}
 		}
+
+		if (item.id === 'feedback' && !this._map.feedback)
+			return undefined;
 
 		var itemName;
 		if (item.name)

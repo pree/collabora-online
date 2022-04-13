@@ -131,11 +131,12 @@ namespace FileUtil
     /// File/Directory stat helper.
     class Stat
     {
+        int clearStat() { memset (&_sb, 0, sizeof(_sb)); return 0; }
     public:
         /// Stat the given path. Symbolic links are stat'ed when @link is true.
         Stat(const std::string& file, bool link = false)
             : _path(file)
-            , _res(link ? lstat(file.c_str(), &_sb) : stat(file.c_str(), &_sb))
+            , _res(clearStat() | (link ? lstat(file.c_str(), &_sb) : stat(file.c_str(), &_sb)))
             , _errno(errno)
         {
         }
@@ -151,6 +152,7 @@ namespace FileUtil
         bool isFile() const { return S_ISREG(_sb.st_mode); }
         bool isLink() const { return S_ISLNK(_sb.st_mode); }
         std::size_t hardLinkCount() const { return _sb.st_nlink; }
+        ino_t inodeNumber() const { return _sb.st_ino; }
 
         /// Returns the filesize in bytes.
         std::size_t size() const { return _sb.st_size; }
@@ -167,9 +169,10 @@ namespace FileUtil
         }
 
         /// Returns the modified unix-time in microseconds since epoch.
-        std::size_t modifiedTimeUs() const
+        int64_t modifiedTimeUs() const
         {
-            return (modifiedTime().tv_sec * 1000 * 1000) + (modifiedTime().tv_nsec / 1000);
+            // cast to make sure the calculation happens with enough bits
+            return (static_cast<int64_t>(modifiedTime().tv_sec) * 1000 * 1000) + (modifiedTime().tv_nsec / 1000);
         }
 
         /// Returns the modified unix-time in milliseconds since epoch.

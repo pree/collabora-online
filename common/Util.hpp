@@ -9,6 +9,7 @@
 
 #include <cassert>
 #include <cerrno>
+#include <chrono>
 #include <cinttypes>
 #include <cstddef>
 #include <cstdint>
@@ -40,6 +41,27 @@
 #include <LibreOfficeKit/LibreOfficeKitEnums.h>
 
 #include <StringVector.hpp>
+
+/// Format seconds with the units suffix until we migrate to C++20.
+inline std::ostream& operator<<(std::ostream& os, const std::chrono::seconds& s)
+{
+    os << s.count() << 's';
+    return os;
+}
+
+/// Format milliseconds with the units suffix until we migrate to C++20.
+inline std::ostream& operator<<(std::ostream& os, const std::chrono::milliseconds& ms)
+{
+    os << ms.count() << "ms";
+    return os;
+}
+
+/// Format microseconds with the units suffix until we migrate to C++20.
+inline std::ostream& operator<<(std::ostream& os, const std::chrono::microseconds& ms)
+{
+    os << ms.count() << "us";
+    return os;
+}
 
 namespace Util
 {
@@ -219,7 +241,7 @@ namespace Util
     ///< A random hex string that identifies the current process.
     std::string getProcessIdentifier();
 
-    std::string getVersionJSON();
+    std::string getVersionJSON(bool enableExperimental);
 
     /// Return a string that is unique across processes and calls.
     std::string UniqueId();
@@ -270,6 +292,39 @@ namespace Util
             return -1;
     }
 
+#if ENABLE_DEBUG
+    // for debugging validation only.
+    inline size_t isValidUtf8(const unsigned char *data, size_t len)
+    {
+        for (size_t i = 0; i < len; ++i)
+        {
+            if (data[i] < 0x80)
+                continue;
+            if (data[i] >> 6 != 0x3)
+                return i;
+            int chunkLen = 1;
+            for (; data[i] & (1 << (7-chunkLen)); chunkLen++)
+                if (chunkLen > 4)
+                    return i;
+
+            // Allow equality as the lower limit of the loop below is not zero.
+            if (i + chunkLen > len)
+                return i;
+
+            for (; chunkLen > 1; --chunkLen)
+                if (data[++i] >> 6 != 0x2)
+                    return i;
+        }
+        return len + 1;
+    }
+
+    // for debugging validation only.
+    inline bool isValidUtf8(const std::string& s)
+    {
+        return Util::isValidUtf8((unsigned char *)s.c_str(), s.size()) > s.size();
+    }
+#endif
+
     inline std::string hexStringToBytes(const uint8_t* data, size_t size)
     {
         assert(data && (size % 2 == 0) && "Invalid hex digits to convert.");
@@ -307,31 +362,34 @@ namespace Util
     inline std::string stringifyHexLine(const T& buffer, std::size_t offset,
                                         const std::size_t width = 32)
     {
-        char scratch[64];
-        std::stringstream os;
+        std::string str;
+        str.reserve(width * 4 + width / 8 + 3 + 1);
 
         for (unsigned int i = 0; i < width; i++)
         {
             if (i && (i % 8) == 0)
-                os << ' ';
+                str.push_back(' ');
             if ((offset + i) < buffer.size())
-                sprintf (scratch, "%.2x ", (unsigned char)buffer[offset+i]);
+            {
+                const unsigned short hex = hexFromByte(buffer[offset+i]);
+                str.push_back(hex >> 8);
+                str.push_back(hex & 0xff);
+                str.push_back(' ');
+            }
             else
-                sprintf (scratch, "   ");
-            os << scratch;
+                str.append(3, ' ');
         }
-        os << " | ";
+        str.append(" | ");
 
         for (unsigned int i = 0; i < width; i++)
         {
             if ((offset + i) < buffer.size())
-                sprintf(scratch, "%c", ::isprint(buffer[offset + i]) ? buffer[offset + i] : '.');
+                str.push_back(::isprint(buffer[offset + i]) ? buffer[offset + i] : '.');
             else
-                sprintf(scratch, " "); // Leave blank if we are out of data.
-            os << scratch;
+                str.push_back(' '); // Leave blank if we are out of data.
         }
 
-        return os.str();
+        return str;
     }
 
     /// Dump data as hex and chars to stream.
@@ -497,20 +555,6 @@ namespace Util
         return trimmed(std::string(s));
     }
 
-    // Trim all type of whitespace from left and right
-    inline std::string trim_whitespace(std::string s)
-    {
-        auto last =
-            std::find_if(s.rbegin(), s.rend(), [](char ch) { return !std::isspace(ch); });
-        s.erase(last.base(), s.end()); //trim from right
-
-        auto first =
-            std::find_if(s.begin(), s.end(), [](char ch) { return !std::isspace(ch); });
-        s.erase(s.begin(), first); //trim from left
-
-        return s;
-    }
-
     /// Return true iff s starts with t.
     inline bool startsWith(const std::string& s, const std::string& t)
     {
@@ -534,97 +578,6 @@ namespace Util
     {
         return equal(t.rbegin(), t.rend(), s.rbegin());
     }
-
-    /// Tokenize delimited values until we hit new-line or the end.
-    inline void tokenize(const char* data, const std::size_t size, const char delimiter,
-                         std::vector<StringToken>& tokens)
-    {
-        if (size == 0 || data == nullptr || *data == '\0')
-            return;
-
-        tokens.reserve(16);
-
-        const char* start = data;
-        const char* end = data;
-        for (std::size_t i = 0; i < size && data[i] != '\n'; ++i, ++end)
-        {
-            if (data[i] == delimiter)
-            {
-                if (start != end && *start != delimiter)
-                    tokens.emplace_back(start - data, end - start);
-
-                start = end;
-            }
-            else if (*start == delimiter)
-                ++start;
-        }
-
-        if (start != end && *start != delimiter && *start != '\n')
-            tokens.emplace_back(start - data, end - start);
-    }
-
-    /// Tokenize single-char delimited values until we hit new-line or the end.
-    inline StringVector tokenize(const char* data, const std::size_t size,
-                                 const char delimiter = ' ')
-    {
-        if (size == 0 || data == nullptr || *data == '\0')
-            return StringVector();
-
-        std::vector<StringToken> tokens;
-        tokenize(data, size, delimiter, tokens);
-        return StringVector(std::string(data, size), std::move(tokens));
-    }
-
-    /// Tokenize single-char delimited values until we hit new-line or the end.
-    inline StringVector tokenize(const std::string& s, const char delimiter = ' ')
-    {
-        if (s.empty())
-            return StringVector();
-
-        std::vector<StringToken> tokens;
-        tokenize(s.data(), s.size(), delimiter, tokens);
-        return StringVector(s, std::move(tokens));
-    }
-
-    /// Tokenize by the delimiter string.
-    inline StringVector tokenize(const std::string& s, const char* delimiter, int len = -1)
-    {
-        if (s.empty() || len == 0 || delimiter == nullptr || *delimiter == '\0')
-            return StringVector();
-
-        if (len < 0)
-            len = std::strlen(delimiter);
-
-        std::size_t start = 0;
-        std::size_t end = s.find(delimiter, start);
-
-        std::vector<StringToken> tokens;
-        tokens.reserve(16);
-
-        tokens.emplace_back(start, end - start);
-        start = end + len;
-
-        while (end != std::string::npos)
-        {
-            end = s.find(delimiter, start);
-            tokens.emplace_back(start, end - start);
-            start = end + len;
-        }
-
-        return StringVector(s, std::move(tokens));
-    }
-
-    inline StringVector tokenize(const std::string& s, const std::string& delimiter)
-    {
-        return tokenize(s, delimiter.data(), delimiter.size());
-    }
-
-    /** Tokenize based on any of the characters in 'delimiters'.
-
-        Ie. when there is '\n\r' in there, any of them means a delimiter.
-        In addition, trim the values so there are no leadiding or trailing spaces.
-    */
-    StringVector tokenizeAnyOf(const std::string& s, const char* delimiters);
 
 #ifdef IOS
 
@@ -1069,6 +1022,14 @@ int main(int argc, char**argv)
     /// Extract and return the filename given a url or path.
     std::string getFilenameFromURL(const std::string& url);
 
+    /// Return true if the subject matches in given set. It uses regex
+    /// Mainly used to match WOPI hosts patterns
+    bool matchRegex(const std::set<std::string>& set, const std::string& subject);
+
+    /// Return value from key:value pair if the subject matches in given map. It uses regex
+    /// Mainly used to match WOPI hosts patterns
+    std::string getValue(const std::map<std::string, std::string>& map, const std::string& subject);
+
     /// Given one or more patterns to allow, and one or more to deny,
     /// the match member will return true if, and only if, the subject
     /// matches the allowed list, but not the deny.
@@ -1122,39 +1083,16 @@ int main(int argc, char**argv)
 
         bool match(const std::string& subject) const
         {
-            return (_allowByDefault || match(_allowed, subject)) && !match(_denied, subject);
+            return (_allowByDefault ||
+                    Util::matchRegex(_allowed, subject)) &&
+                   !Util::matchRegex(_denied, subject);
         }
 
-    private:
-        static bool match(const std::set<std::string>& set, const std::string& subject)
+        // whether a match exist within both _allowed and _denied
+        bool matchExist(const std::string& subject) const
         {
-            if (set.find(subject) != set.end())
-            {
-                return true;
-            }
-
-            // Not a perfect match, try regex.
-            for (const auto& value : set)
-            {
-                try
-                {
-                    // Not performance critical to warrant caching.
-                    Poco::RegularExpression re(value, Poco::RegularExpression::RE_CASELESS);
-                    Poco::RegularExpression::Match reMatch;
-
-                    // Must be a full match.
-                    if (re.match(subject, reMatch) && reMatch.offset == 0 && reMatch.length == subject.size())
-                    {
-                        return true;
-                    }
-                }
-                catch (const std::exception& exc)
-                {
-                    // Nothing to do; skip.
-                }
-            }
-
-            return false;
+            return (Util::matchRegex(_allowed, subject) ||
+                    Util::matchRegex(_denied, subject));
         }
 
     private:
@@ -1215,8 +1153,62 @@ int main(int argc, char**argv)
     /// Convert time from ISO8061 fraction format
     std::chrono::system_clock::time_point iso8601ToTimestamp(const std::string& iso8601Time, const std::string& logName);
 
+    /// A null-converter between two identical clocks.
+    template <typename Dst, typename Src, typename std::is_same<Src, Dst>::type>
+    Dst convertChronoClock(const Src time)
+    {
+        return std::chrono::time_point_cast<Dst>(time);
+    }
+
+    /// Converter between two different clocks,
+    /// such as system_clock and stead_clock.
+    /// Note: by nature this has limited accuracy.
+    template <typename Dst, typename Src, typename Enable = void>
+    Dst convertChronoClock(const Src time)
+    {
+        const auto before = Src::clock::now();
+        const auto now = Dst::clock::now();
+        const auto after = Src::clock::now();
+        const auto diff = after - before;
+        const auto correction = before + (diff / 2);
+        return std::chrono::time_point_cast<typename Dst::duration>(now + (time - correction));
+    }
+
+    /// Converts from system_clock to string for debugging / tracing.
+    /// Format (local time): Thu Jan 27 03:45:27.123 2022
+    std::string getSystemClockAsString(const std::chrono::system_clock::time_point &time);
+
     /// conversion from steady_clock for debugging / tracing
-    std::string getSteadyClockAsString(const std::chrono::steady_clock::time_point &time);
+    /// Format (local time): Thu Jan 27 03:45:27.123 2022
+    inline std::string getSteadyClockAsString(const std::chrono::steady_clock::time_point& time)
+    {
+        return getSystemClockAsString(
+            convertChronoClock<std::chrono::system_clock::time_point>(time));
+    }
+
+    /// See getSystemClockAsString.
+    inline std::string getClockAsString(const std::chrono::system_clock::time_point& time)
+    {
+        return getSystemClockAsString(time);
+    }
+
+    /// See getSteadyClockAsString.
+    inline std::string getClockAsString(const std::chrono::steady_clock::time_point& time)
+    {
+        return getSteadyClockAsString(time);
+    }
+
+    template <typename U, typename T> std::string getTimeForLog(const U& now, const T& time)
+    {
+        const auto elapsed = now - convertChronoClock<U>(time);
+        const auto elapsedS = std::chrono::duration_cast<std::chrono::seconds>(elapsed);
+        const auto elapsedMS =
+            std::chrono::duration_cast<std::chrono::milliseconds>(elapsed) - elapsedS;
+
+        std::stringstream ss;
+        ss << getClockAsString(time) << " (" << elapsedS << ' ' << elapsedMS << " ago)";
+        return ss.str();
+    }
 
     /**
      * Avoid using the configuration layer and rely on defaults which is only useful for special
@@ -1228,6 +1220,7 @@ int main(int argc, char**argv)
      * Splits string into vector<string>. Does not accept referenced variables for easy
      * usage like (splitString("test", ..)) or (splitString(getStringOnTheFly(), ..))
      */
+     //FIXME: merge with StringVector.
     inline std::vector<std::string> splitStringToVector(const std::string& str, const char delim)
     {
         size_t start;
@@ -1332,6 +1325,29 @@ int main(int argc, char**argv)
         return std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()).time_since_epoch().count();
     }
 
+    /// Convert a vector to a string. Useful for conversion in templates.
+    template <typename T> inline std::string toString(const T& x)
+    {
+        std::ostringstream oss;
+        oss << x;
+        return oss.str();
+    }
+
+    /// Convert a vector to a string. Useful for conversion in templates.
+    inline std::string toString(const std::vector<char>& x)
+    {
+        return std::string(x.data(), x.size());
+    }
+
+    /// No-op string conversion. Useful for conversion in templates.
+    inline std::string toString(const std::string& s) { return s; }
+
+    /// Create a string from a literal. Useful for conversion in templates.
+    template <std::size_t N> inline std::string toString(const char (&s)[N])
+    {
+        return std::string(s);
+    }
+
     /**
      * Constructs an object of type T and wraps it in a std::unique_ptr.
      *
@@ -1356,5 +1372,11 @@ int main(int argc, char**argv)
     void forcedExit(int code) __attribute__ ((__noreturn__));
 
 } // end namespace Util
+
+inline std::ostream& operator<<(std::ostream& os, const std::chrono::system_clock::time_point& ts)
+{
+    os << Util::getIso8601FracformatTime(ts);
+    return os;
+}
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

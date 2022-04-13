@@ -2,11 +2,12 @@
 
 var helper = require('../../common/helper');
 
-describe.skip('Repair Document', function() {
-	var testFileName = 'repair_doc.odt';
+describe('Repair Document', function() {
+	var origTestFileName = 'repair_doc.odt';
+	var testFileName;
 
 	beforeEach(function() {
-		helper.beforeAll(testFileName, 'writer', undefined, true);
+		testFileName = helper.beforeAll(origTestFileName, 'writer', undefined, true);
 	});
 
 	afterEach(function() {
@@ -17,23 +18,29 @@ describe.skip('Repair Document', function() {
 
 		cy.customGet('.leaflet-layer', frameId1).click();
 
-		helper.typeIntoDocument('Hello', frameId1);
+		helper.typeIntoDocument('Hello World', frameId1);
 
 		cy.customGet('#menu-editmenu', frameId2).click()
 			.customGet('#menu-repair', frameId2).click();
 
 		cy.customGet('.leaflet-popup-content table', frameId2).should('exist');
 
-		cy.iframe(frameId2).contains('.leaflet-popup-content table tbody tr','Typing: “e”')
+		cy.iframe(frameId2).contains('.leaflet-popup-content table tbody tr','Typing: “World”')
 			.dblclick();
 
-		helper.expectTextForClipboard('\nH', frameId2);
+		cy.customGet('.leaflet-layer', frameId2).click();
+
+		cy.wait(500);
+
+		helper.selectAllText(frameId2);
+
+		helper.expectTextForClipboard('\nHello \n', frameId2);
 
 		cy.customGet('.leaflet-layer', frameId1).click();
 
 		helper.selectAllText(frameId1);
 
-		helper.expectTextForClipboard('\nH', frameId1);
+		helper.expectTextForClipboard('\nHello \n', frameId1);
 	}
 
 	it('Repair by user-2', function() {

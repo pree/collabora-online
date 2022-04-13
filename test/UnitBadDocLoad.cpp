@@ -35,13 +35,17 @@ class UnitBadDocLoad : public UnitWSD
     TestResult testMaxViews();
 
 public:
+    UnitBadDocLoad()
+        : UnitWSD("UnitBadDocLoad")
+    {
+    }
+
     void invokeWSDTest() override;
 };
 
 UnitBase::TestResult UnitBadDocLoad::testBadDocLoadFail()
 {
     // Load corrupted document and validate error.
-    const char* testname = "docLoadFail ";
     try
     {
         std::string documentPath, documentURL;
@@ -57,7 +61,7 @@ UnitBase::TestResult UnitBadDocLoad::testBadDocLoadFail()
         helpers::sendTextFrame(socket, "load url=" + documentURL, testname);
 
         const auto response = helpers::getResponseString(socket, "error:", testname);
-        StringVector tokens(Util::tokenize(response, ' '));
+        StringVector tokens(StringVector::tokenize(response, ' '));
         LOK_ASSERT_EQUAL(static_cast<size_t>(3), tokens.size());
 
         std::string errorCommand;
@@ -77,7 +81,6 @@ UnitBase::TestResult UnitBadDocLoad::testBadDocLoadFail()
 UnitBase::TestResult UnitBadDocLoad::testMaxDocuments()
 {
     static_assert(MAX_DOCUMENTS >= 2, "MAX_DOCUMENTS must be at least 2");
-    const char* testname = "maxDocuments ";
 
     if (MAX_DOCUMENTS > 20)
     {
@@ -134,7 +137,6 @@ UnitBase::TestResult UnitBadDocLoad::testMaxDocuments()
 UnitBase::TestResult UnitBadDocLoad::testMaxConnections()
 {
     static_assert(MAX_CONNECTIONS >= 3, "MAX_CONNECTIONS must be at least 3");
-    const char* testname = "maxConnections ";
 
     if (MAX_CONNECTIONS > 40)
     {
@@ -196,7 +198,6 @@ UnitBase::TestResult UnitBadDocLoad::testMaxConnections()
 UnitBase::TestResult UnitBadDocLoad::testMaxViews()
 {
     static_assert(MAX_CONNECTIONS >= 3, "MAX_CONNECTIONS must be at least 3");
-    const char* testname = "maxViews ";
 
     if (MAX_CONNECTIONS > 40)
     {

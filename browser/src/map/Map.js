@@ -274,7 +274,7 @@ L.Map = L.Evented.extend({
 		this.on('docloaded', function(e) {
 			this._docLoaded = e.status;
 			if (this._docLoaded) {
-				app.socket.sendMessage('blockingcommandstatus isRestrictedUser=' + this.Restriction.isRestrictedUser + ' isFreemiumUser=' + this.Freemium.isFreemiumUser);
+				app.socket.sendMessage('blockingcommandstatus isRestrictedUser=' + this.Restriction.isRestrictedUser + ' isLockedUser=' + this.Locking.isLockedUser);
 				this.notifyActive();
 				if (!document.hasFocus()) {
 					this.fire('editorgotfocus');
@@ -424,8 +424,13 @@ L.Map = L.Evented.extend({
 			} else if (elapsed < 3600000) {
 				dateValue = _('Last saved:') + ' ' + rtf1.format(-Math.round(elapsed / 60000), 'minute');
 				timeout = 60000;
-			} else {
+			} else if (elapsed < 3600000 * 24) {
 				dateValue = _('Last saved:') + ' ' + rtf1.format(-Math.round(elapsed / 3600000), 'hour');
+				timeout = 60000;
+			} else {
+				dateValue = _('Last saved:') + ' ' + dateTime.toLocaleDateString(String.locale,
+					{ year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+				timeout = 60000;
 			}
 
 			this.lastModIndicator.innerHTML = dateValue;
@@ -935,7 +940,7 @@ L.Map = L.Evented.extend({
 	// We have one global winId that controls what window (dialog, sidebar, or
 	// the main document) has the actual focus.  0 means the document.
 	setWinId: function (id) {
-		// console.log('winId set to: ' + id);
+		// window.app.console.log('winId set to: ' + id);
 		if (typeof id === 'string')
 			id = parseInt(id);
 		this._winId = id;
@@ -984,6 +989,18 @@ L.Map = L.Evented.extend({
 		return this.options.crs.pointToLatLng(L.point(point), zoom);
 	},
 
+	/**
+	 * Get LatLng coordinates after negating the X cartesian-coordinate.
+	 * This is useful in Calc RTL mode as mouse events have regular document
+	 * coordinates(latlng) but draw-objects(shapes) have negative document
+	 * X coordinates.
+	 */
+	negateLatLng: function (latlng, zoom) { // (LatLng[, Number]) -> LatLng
+		var docPos = this.project(latlng, zoom);
+		docPos.x = -docPos.x;
+		return this.unproject(docPos, zoom);
+	},
+
 	layerPointToLatLng: function (point) { // (Point)
 		var projectedPoint = L.point(point).add(this.getPixelOrigin());
 		return this.unproject(projectedPoint);
@@ -1011,7 +1028,13 @@ L.Map = L.Evented.extend({
 		var pixelOrigin = this.getPixelOrigin();
 		var mapPanePos = this._getMapPanePos();
 		var result = L.point(point).clone();
-		if (point.x <= splitPos.x) {
+		var pointX = point.x;
+		if (this._docLayer.isCalcRTL()) {
+			pointX = this._container.clientWidth - pointX;
+			result.x = pointX;
+		}
+
+		if (pointX <= splitPos.x) {
 			result.x -= pixelOrigin.x;
 		}
 		else {
@@ -1088,6 +1111,13 @@ L.Map = L.Evented.extend({
 	// accept key input, and show the virtual keyboard.
 	focus: function (acceptInput) {
 		this._textInput.focus(acceptInput);
+	},
+
+	// just set the keyboard state for mobile
+	// we dont want to change the focus, we know that keyboard is closed
+	// and we are just setting the state here
+	setAcceptInput: function (acceptInput) {
+		this._textInput._setAcceptInput(acceptInput);
 	},
 
 	// Lose focus to stop accepting keyboard input.
@@ -1316,8 +1346,12 @@ L.Map = L.Evented.extend({
 						sizeChanged = (currentWidth !== width || currentHeight !== height);
 					}
 					if (width > 0 && height > 0 && sizeChanged) {
-						console.log('_onResize: container width: ' + width + ', container height: ' + height + ', _calcInputBar width: ' + this.dialog._calcInputBar.width);
-						app.socket.sendMessage('resizewindow ' + id + ' size=' + width + ',' + height);
+						window.app.console.log('_onResize: container width: ' + width + ', container height: ' + height + ', _calcInputBar width: ' + this.dialog._calcInputBar.width);
+						if (width != this.dialog._calcInputbarContainerWidth || height != this.dialog._calcInputbarContainerHeight) {
+							app.socket.sendMessage('resizewindow ' + id + ' size=' + width + ',' + height);
+							this.dialog._calcInputbarContainerWidth = width;
+							this.dialog._calcInputbarContainerHeight = height;
+						}
 					}
 				}
 			}
@@ -1325,7 +1359,7 @@ L.Map = L.Evented.extend({
 	},
 
 	makeActive: function() {
-		// console.log('Force active');
+		// window.app.console.log('Force active');
 		this.lastActiveTime = Date.now();
 		return this._activate();
 	},
@@ -1335,15 +1369,19 @@ L.Map = L.Evented.extend({
 			return false;
 		}
 
-		// console.debug('_activate:');
+		// window.app.console.debug('_activate:');
 		clearTimeout(vex.timer);
 
 		if (!this._active) {
 			// Only activate when we are connected.
 			if (app.socket.connected()) {
-				// console.debug('sending useractive');
+				// window.app.console.debug('sending useractive');
 				app.socket.sendMessage('useractive');
 				this._active = true;
+				var docLayer = this._docLayer;
+				if (docLayer.isCalc() && docLayer.options.sheetGeometryDataEnabled) {
+					docLayer.requestSheetGeometryData();
+				}
 				app.socket.sendMessage('commandvalues command=.uno:ViewAnnotations');
 
 				if (isAnyVexDialogActive()) {
@@ -1381,7 +1419,7 @@ L.Map = L.Evented.extend({
 		} else if (typeof document.webkitHidden !== 'undefined') {
 			hidden = document.webkitHidden;
 		} else {
-			console.debug('Unusual browser, cant determine if hidden');
+			window.app.console.debug('Unusual browser, cant determine if hidden');
 		}
 		return hidden;
 	},
@@ -1391,7 +1429,7 @@ L.Map = L.Evented.extend({
 			return;
 		}
 
-		// console.debug('_dim:');
+		// window.app.console.debug('_dim:');
 		if (!app.socket.connected() || isAnyVexDialogActive()) {
 			return;
 		}
@@ -1408,11 +1446,11 @@ L.Map = L.Evented.extend({
 		var multiplier = 1;
 		if (!this.documentHidden(true))
 		{
-			// console.debug('document visible');
+			// window.app.console.debug('document visible');
 			multiplier = 4; // quadruple the grace period
 		}
 		if (inactiveMs <= this.options.outOfFocusTimeoutSecs * 1000 * multiplier) {
-			// console.debug('had activity ' + inactiveMs + 'ms ago vs. threshold ' +
+			// window.app.console.debug('had activity ' + inactiveMs + 'ms ago vs. threshold ' +
 			//	      (this.options.outOfFocusTimeoutSecs * 1000 * multiplier) +
 			//	      ' - so fending off the dim');
 			vex.timer = setTimeout(function() {
@@ -1435,7 +1473,7 @@ L.Map = L.Evented.extend({
 			afterOpen: function() {
 				var $vexContent = $(this.contentEl);
 				$vexContent.bind('click.vex', function() {
-					// console.debug('_dim: click.vex function');
+					// window.app.console.debug('_dim: click.vex function');
 					return map._activate();
 				});
 			},
@@ -1447,7 +1485,7 @@ L.Map = L.Evented.extend({
 			$('.cool-user-idle').css('display', 'none');
 
 		this._doclayer && this._docLayer._onMessage('textselection:', null);
-		// console.debug('_dim: sending userinactive');
+		// window.app.console.debug('_dim: sending userinactive');
 		map.fire('postMessage', {msgId: 'User_Idle'});
 		app.socket.sendMessage('userinactive');
 	},
@@ -1460,7 +1498,7 @@ L.Map = L.Evented.extend({
 	},
 
 	_dimIfInactive: function () {
-		// console.debug('_dimIfInactive: diff=' + (Date.now() - this.lastActiveTime));
+		// window.app.console.debug('_dimIfInactive: diff=' + (Date.now() - this.lastActiveTime));
 		if (this._docLoaded && // don't dim if document hasn't been loaded yet
 		    (Date.now() - this.lastActiveTime) >= this.options.idleTimeoutSecs * 1000) {
 			this._dim();
@@ -1474,7 +1512,7 @@ L.Map = L.Evented.extend({
 			return;
 		}
 
-		// console.debug('_startInactiveTimer:');
+		// window.app.console.debug('_startInactiveTimer:');
 		clearTimeout(vex.timer);
 		var map = this;
 		vex.timer = setTimeout(function() {
@@ -1487,7 +1525,7 @@ L.Map = L.Evented.extend({
 			return;
 		}
 
-		// console.debug('_deactivate:');
+		// window.app.console.debug('_deactivate:');
 		clearTimeout(vex.timer);
 
 		if (!this._active || isAnyVexDialogActive()) {
@@ -1496,7 +1534,7 @@ L.Map = L.Evented.extend({
 			this._active = false;
 			this._docLayer && this._docLayer._onMessage('textselection:', null);
 			if (app.socket.connected()) {
-				// console.debug('_deactivate: sending userinactive');
+				// window.app.console.debug('_deactivate: sending userinactive');
 				app.socket.sendMessage('userinactive');
 			}
 

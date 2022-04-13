@@ -13,9 +13,10 @@
     <child_root_path desc="Path to the directory under which the chroot jails for the child processes will be created. Should be on the same file system as systemplate and lotemplate. Must be an empty directory." type="path" relative="true" default="jails"></child_root_path>
     <mount_jail_tree desc="Controls whether the systemplate and lotemplate contents are mounted or not, which is much faster than the default of linking/copying each file." type="bool" default="true"></mount_jail_tree>
 
-    <server_name desc="External hostname:port of the server running coolwsd. If empty, it's derived from the request (please set it if this doesn't work). Must be specified when behind a reverse-proxy or when the hostname is not reachable directly." type="string" default=""></server_name>
+    <server_name desc="External hostname:port of the server running coolwsd. If empty, it's derived from the request (please set it if this doesn't work). May be specified when behind a reverse-proxy or when the hostname is not reachable directly." type="string" default=""></server_name>
     <file_server_root_path desc="Path to the directory that should be considered root for the file server. This should be the directory containing cool." type="path" relative="true" default="browser/../"></file_server_root_path>
     <hexify_embedded_urls desc="Enable to protect encoded URLs from getting decoded by intermediate hops. Particularly useful on Azure deployments" type="bool" default="false"></hexify_embedded_urls>
+    <experimental_features desc="Enable/Disable experimental features" type="bool" default="@ENABLE_EXPERIMENTAL@">@ENABLE_EXPERIMENTAL@</experimental_features>
 
     <memproportion desc="The maximum percentage of system memory consumed by all of the @APP_NAME@, after which we start cleaning up idle documents" type="double" default="80.0"></memproportion>
     <num_prespawn_children desc="Number of child processes to keep started in advance and waiting for new clients." type="uint" default="1">1</num_prespawn_children>
@@ -36,6 +37,7 @@
         <limit_file_size_mb desc="The maximum file size allowed to each document process to write. 0 for unlimited." type="uint">0</limit_file_size_mb>
         <limit_num_open_files desc="The maximum number of files allowed to each document process to open. 0 for unlimited." type="uint">0</limit_num_open_files>
         <limit_load_secs desc="Maximum number of seconds to wait for a document load to succeed. 0 for unlimited." type="uint" default="100">100</limit_load_secs>
+        <limit_store_failures desc="Maximum number of consecutive save-and-upload to storage failures when unloading the document. 0 for unlimited (not recommended)." type="uint" default="5">5</limit_store_failures>
         <limit_convert_secs desc="Maximum number of seconds to wait for a document conversion to succeed. 0 for unlimited." type="uint" default="100">100</limit_convert_secs>
         <cleanup desc="Checks for resource consuming (bad) documents and kills associated kit process. A document is considered resource consuming (bad) if is in idle state for idle_time_secs period and memory usage passed limit_dirty_mem_mb or CPU usage passed limit_cpu_per" enable="true">
             <cleanup_interval_ms desc="Interval between two checks" type="uint" default="10000">10000</cleanup_interval_ms>
@@ -48,6 +50,7 @@
     </per_document>
 
     <per_view desc="View-specific settings.">
+        <group_download_as desc="If set to true, groups download as icons into a dropdown for the notebookbar view." type="bool" default="false">false</group_download_as>
         <out_of_focus_timeout_secs desc="The maximum number of seconds before dimming and stopping updates when the browser tab is no longer in focus. Defaults to 120 seconds." type="uint" default="120">120</out_of_focus_timeout_secs>
         <idle_timeout_secs desc="The maximum number of seconds before dimming and stopping updates when the user is no longer active (even if the browser is in focus). Defaults to 15 minutes." type="uint" default="900">900</idle_timeout_secs>
     </per_view>
@@ -83,6 +86,7 @@
             <anonymize_user_data type="bool" desc="Enable to anonymize/obfuscate of user-data in logs. If default is true, it was forced at compile-time and cannot be disabled." default="@COOLWSD_ANONYMIZE_USER_DATA@">@COOLWSD_ANONYMIZE_USER_DATA@</anonymize_user_data>
             <anonymization_salt type="uint" desc="The salt used to anonymize/obfuscate user-data in logs. Use a secret 64-bit random number." default="82589933">82589933</anonymization_salt>
         </anonymize>
+        <docstats type="bool" desc="Enable to see document handling information in logs." default="false">false</docstats>
     </logging>
 
     <!--
@@ -120,12 +124,16 @@
         <host desc="The IPv4 loopback (localhost) address.">127\.0\.0\.1</host>
         <host desc="Ditto, but as IPv4-mapped IPv6 address">::ffff:127\.0\.0\.1</host>
         <host desc="The IPv6 loopback (localhost) address.">::1</host>
-        <host desc="The IPv4 private 172.17.0.0/16 subnet (Docker).">172\.17\.[0-9]{1,3}\.[0-9]{1,3}</host>
-        <host desc="Ditto, but as IPv4-mapped IPv6 addresses">::ffff:172\.17\.[0-9]{1,3}\.[0-9]{1,3}</host>
+        <host desc="The IPv4 private 172.16.0.0/12 subnet part 1.">172\.1[6789]\.[0-9]{1,3}\.[0-9]{1,3}</host>
+        <host desc="Ditto, but as IPv4-mapped IPv6 addresses">::ffff:172\.1[6789]\.[0-9]{1,3}\.[0-9]{1,3}</host>
+        <host desc="The IPv4 private 172.16.0.0/12 subnet part 2.">172\.2[0-9]\.[0-9]{1,3}\.[0-9]{1,3}</host>
+        <host desc="Ditto, but as IPv4-mapped IPv6 addresses">::ffff:172\.2[0-9]\.[0-9]{1,3}\.[0-9]{1,3}</host>
+        <host desc="The IPv4 private 172.16.0.0/12 subnet part 3.">172\.3[01]\.[0-9]{1,3}\.[0-9]{1,3}</host>
+        <host desc="Ditto, but as IPv4-mapped IPv6 addresses">::ffff:172\.3[01]\.[0-9]{1,3}\.[0-9]{1,3}</host>
         <host desc="The IPv4 private 10.0.0.0/8 subnet (Podman).">10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}</host>
         <host desc="Ditto, but as IPv4-mapped IPv6 addresses">::ffff:10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}</host>
       </post_allow>
-      <frame_ancestors desc="Specify who is allowed to embed the LO Online iframe (coolwsd and WOPI host are always allowed). Separate multiple hosts by space."></frame_ancestors>
+      <frame_ancestors desc="Specify who is allowed to embed the Collabora Online iframe (coolwsd and WOPI host are always allowed). Separate multiple hosts by space."></frame_ancestors>
       <connection_timeout_secs desc="Specifies the connection, send, recv timeout in seconds for connections initiated by coolwsd (such as WOPI connections)." type="int" default="30"></connection_timeout_secs>
 
       <!-- this setting radically changes how online works, it should not be used in a production environment -->
@@ -148,6 +156,10 @@
             <pin></pin>
             </pins>
         </hpkp>
+        <sts desc="Strict-Transport-Security settings, per rfc6797. Subdomains are always included.">
+            <enabled desc="Whether or not Strict-Transport-Security is enabled. Enable only when ready for production. Cannot be disabled without resetting the browsers." type="bool" default="false">false</enabled>
+            <max_age desc="Strict-Transport-Security max-age directive, in seconds. 0 is allowed; please see rfc6797 for details. Defaults to 1 year." type="int" default="31536000">31536000</max_age>
+        </sts>
     </ssl>
 
     <security desc="Altering these defaults potentially opens you to significant risk">
@@ -159,35 +171,42 @@
       <enable_metrics_unauthenticated desc="When enabled, the /cool/getMetrics endpoint will not require authentication." type="bool" default="false">false</enable_metrics_unauthenticated>
     </security>
 
+    <certificates>
+      <database_path type="string" desc="Path to the NSS certificates that are used for signing documents" default=""></database_path>
+    </certificates>
+
     <watermark>
       <opacity desc="Opacity of on-screen watermark from 0.0 to 1.0" type="double" default="0.2"></opacity>
       <text desc="Watermark text to be displayed on the document if entered" type="string"></text>
     </watermark>
 
-    <welcome>
-      <enable type="bool" desc="Controls whether the welcome screen should be shown to the users on new install and updates." default="@ENABLE_WELCOME_MESSAGE@">@ENABLE_WELCOME_MESSAGE@</enable>
-      <enable_button type="bool" desc="Controls whether the welcome screen should have an explanatory button instead of an X button to close the dialog." default="@ENABLE_WELCOME_MESSAGE_BUTTON@">@ENABLE_WELCOME_MESSAGE_BUTTON@</enable_button>
-      <path desc="Path to 'welcome-$lang.html' files served on first start or when the version changes. When empty, defaults to the Release notes." type="path" relative="true" default="browser/welcome"></path>
-    </welcome>
+    @WELCOME_CONFIG_FRAGMENT@
 
     <user_interface>
-      <mode type="string" desc="Controls the user interface style (classic|notebookbar)" default="@USER_INTERFACE_MODE@">@USER_INTERFACE_MODE@</mode>
+      <mode type="string" desc="Controls the user interface style. The 'default' means: Take the value from ui_defaults, or decide for one of classic or notebookbar (default|classic|notebookbar)" default="default">default</mode>
+      <use_integration_theme desc="Use theme from the integrator" type="bool" default="true">true</use_integration_theme>
     </user_interface>
 
     <storage desc="Backend storage">
         <filesystem allow="false" />
         <wopi desc="Allow/deny wopi storage." allow="true">
-            <host desc="Regex pattern of hostname to allow or deny." allow="true">localhost</host>
-            <host desc="Regex pattern of hostname to allow or deny." allow="true">10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}</host>
-            <host desc="Regex pattern of hostname to allow or deny." allow="true">172\.1[6789]\.[0-9]{1,3}\.[0-9]{1,3}</host>
-            <host desc="Regex pattern of hostname to allow or deny." allow="true">172\.2[0-9]\.[0-9]{1,3}\.[0-9]{1,3}</host>
-            <host desc="Regex pattern of hostname to allow or deny." allow="true">172\.3[01]\.[0-9]{1,3}\.[0-9]{1,3}</host>
-            <host desc="Regex pattern of hostname to allow or deny." allow="true">192\.168\.[0-9]{1,3}\.[0-9]{1,3}</host>
-            <host desc="Regex pattern of hostname to allow or deny." allow="false">192\.168\.1\.1</host>
             <max_file_size desc="Maximum document size in bytes to load. 0 for unlimited." type="uint">0</max_file_size>
             <locking desc="Locking settings">
                 <refresh desc="How frequently we should re-acquire a lock with the storage server, in seconds (default 15 mins) or 0 for no refresh" type="int" default="900">900</refresh>
             </locking>
+
+            <alias_groups desc="default mode is 'first' it allows only the first host when groups are not defined. set mode to 'groups' and define group to allow multiple host and its aliases" mode="first">
+            <!-- If you need to use multiple wopi hosts, please change the mode to "groups" and
+                    add the hosts below.  If one host is accessible under multiple ip addresses
+                    or names, add them as aliases. -->
+            <!--<group>
+                    <host desc="hostname to allow or deny." allow="true">scheme://hostname:port</host>
+                    <alias desc="regex pattern of aliasname">scheme://aliasname1:port</alias>
+                    <alias desc="regex pattern of aliasname">scheme://aliasname2:port</alias>
+            </group>-->
+            <!-- More "group"s possible here -->
+            </alias_groups>
+
         </wopi>
         <ssl desc="SSL settings">
             <as_scheme type="bool" default="true" desc="When set we exclusively use the WOPI URI's scheme to enable SSL for storage">true</as_scheme>
@@ -218,7 +237,11 @@
         <expiry_min desc="Time in mins after quarantined files will be deleted." type="int" default="30"></expiry_min>
     </quarantine_files>
 
-    @FREEMIUM_CONFIGURATION@
+    <remote_config >
+        <remote_url desc="remote server to which you will send resquest to get remote config in response" type="string" default=""></remote_url>
+    </remote_config>
+
+    @LOCK_CONFIGURATION@
 
     @FEATURE_RESTRICTION_CONFIGURATION@
 

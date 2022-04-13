@@ -7,28 +7,34 @@ m4_define([_m4_foreachq],[m4_ifelse([$#],[3],[],[m4_define([$1],[$4])$2[]$0([$1]
 m4_define(_YEAR_,m4_esyscmd(date +%Y|tr -d '\n'))
 <!DOCTYPE html>
 <!-- saved from url=(0054)http://leafletjs.com/examples/quick-start-example.html -->
-<html style="height:100%"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<html %UI_RTL_SETTINGS% style="height:100%"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>Online Editor</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <script>
 m4_dnl# Define MOBILEAPP as true if this is either for the iOS app or for the gtk+ "app" testbed
+   window.welcomeUrl = '%WELCOME_URL%';
+   window.feedbackUrl = '%FEEDBACK_URL%';
+   window.infobarUrl = '%INFOBAR_URL%';
 m4_define([MOBILEAPP],[])
 m4_ifelse(IOSAPP,[true],[m4_define([MOBILEAPP],[true])])
 m4_ifelse(GTKAPP,[true],[m4_define([MOBILEAPP],[true])])
 m4_ifelse(ANDROIDAPP,[true],[m4_define([MOBILEAPP],[true])])
-
-m4_ifelse(ENABLE_FEEDBACK,[true],[  window.feebackLocation = '%FEEDBACK_LOCATION%';])
-
 m4_ifelse(MOBILEAPP,[],
   // Start listening for Host_PostmessageReady message and save the
   // result for future
-  window.WOPIpostMessageReady = false;
-  var PostMessageReadyListener = function(e) {
+    window.WOPIpostMessageReady = false;
+    var PostMessageReadyListener = function(e) {
     if (!(e && e.data))
         return;
-    var msg = JSON.parse(e.data);
+
+    try {
+        var msg = JSON.parse(e.data);
+    } catch (err) {
+        return;
+    }
+
     if (msg.MessageId === 'Host_PostmessageReady') {
       window.WOPIPostmessageReady = true;
       window.removeEventListener('message', PostMessageReadyListener, false);
@@ -115,6 +121,15 @@ window.isLocalStorageAllowed = (function() {
     return false;
   }
 })();
+function onSlideClick(e){
+	// Scroll
+	document.getElementById(e.substring(2)).scrollIntoView( {behavior: 'smooth' });
+	// Switch active indicator
+	for (var i = 1; i<4; i++)
+		document.getElementById('i-slide-' + i).classList.remove("active");
+	document.getElementById(e).classList.add("active");
+}
+
 </script>
 
 m4_ifelse(BUNDLE,[],
@@ -166,22 +181,32 @@ m4_ifelse(MOBILEAPP,[true],
         and width, this being inside the smaller "document-container" will
         cause the content to overflow, creating scrollbars -->
 
-     <nav class="main-nav" role="navigation">
-       <!-- Mobile menu toggle button (hamburger/x icon) -->
-       <input id="main-menu-state" type="checkbox" style="display: none"/>
-       <ul id="main-menu" class="sm sm-simple lo-menu readonly"></ul>
-       <div id="document-titlebar">
-         <div class="document-title">
-           <!-- visuallyhidden: hide it visually but keep it available to screen reader and other assistive technology -->
-           <label class="visuallyhidden" for="document-name-input" aria-hidden="false">Document name</label>
-           <input id="document-name-input" type="text" disabled="true" style="display: none"/>
-         </div>
-       </div>
+    <nav class="main-nav" role="navigation">
+      <!-- Mobile menu toggle button (hamburger/x icon) -->
+      <input id="main-menu-state" type="checkbox" style="display: none"/>
+      <ul id="main-menu" class="sm sm-simple lo-menu readonly"></ul>
+      <div id="document-titlebar">
+        <div class="document-title">
+          <!-- visuallyhidden: hide it visually but keep it available to screen reader and other assistive technology -->
+          <label class="visuallyhidden" for="document-name-input" aria-hidden="false">Document name</label>
+          <input id="document-name-input" type="text" disabled="true" style="display: none"/>
+        </div>
+      </div>
+
+      <div id="userListHeader">
+        <div id="userListSummary"></div>
+        <div id="userListPopover"></div>
+      </div>
+
+      <div id="closebuttonwrapper">
+        <div class="closebuttonimage" id="closebutton"></div>
+      </div>
      </nav>
 
      <table id="toolbar-wrapper">
      <tr>
        <td id="toolbar-logo"></td>
+       <td id="toolbar-mobile-back" class="editmode-off"></td>
        <td id="toolbar-up"></td>
        <td id="toolbar-hamburger">
          <label class="main-menu-btn" for="main-menu-state">
@@ -190,28 +215,27 @@ m4_ifelse(MOBILEAPP,[true],
        </td>
      </tr>
      <tr>
-       <td colspan="3" id="formulabar" style="display: none"></td>
+       <td colspan="4" id="formulabar" style="display: none"></td>
      </tr>
     </table>
 
     <!--%DOCUMENT_SIGNING_DIV%-->
     <script>
-      window.documentSigningURL = '%DOCUMENT_SIGNING_URL%';
+    m4_ifelse(MOBILEAPP,[true],
+      [ window.documentSigningURL = ''; ],
+      [ window.documentSigningURL = decodeURIComponent('%DOCUMENT_SIGNING_URL%'); ]
+    )
     </script>
 
     <input id="insertgraphic" aria-labelledby="menu-insertgraphic" type="file" accept="image/*" style="position: fixed; top: -100em">
     <input id="selectbackground" aria-labelledby="menu-selectbackground" type="file" accept="image/*" style="position: fixed; top: -100em">
-
-    <div id="closebuttonwrapper">
-      <div class="closebuttonimage" id="closebutton"></div>
-    </div>
 
     <div id="main-document-content" style="display:flex; flex-direction: row; flex: 1; margin: 0; padding: 0; min-height: 0">
       <div id="presentation-controls-wrapper" class="readonly">
         <div id="slide-sorter"></div>
         <div id="presentation-toolbar" style="display: none"></div>
       </div>
-      <div id="document-container" class="readonly">
+      <div id="document-container" class="readonly" dir="ltr">
         <div id="map"></div>
       </div>
       <div id="sidebar-dock-wrapper" style="display: none;">
@@ -252,14 +276,14 @@ m4_ifelse(MOBILEAPP,[true],
         </div>
         <div id="about-dialog-info-container">
           <div id="about-dialog-info">
-            <div> COOLWSD version:</div>
-            <div id="coolwsd-version"></div>
-            <div id="coolwsd-id" style="visibility: hidden;"></div>
-            <div>LOKit version:</div>
-            <div id="lokit-version"></div>
-            m4_ifelse(MOBILEAPP,[],[<div id="os-info"></div>],[<p></p>])
+            <div id="coolwsd-version-label"></div>
+            <div style="margin-inline-end: auto;"><div id="coolwsd-version" dir="ltr"></div></div>
+            <div class="spacer"></div>
+            <div id="lokit-version-label"></div>
+            <div style="margin-inline-end: auto;"><div id="lokit-version" dir="ltr"></div></div>
+            m4_ifelse(MOBILEAPP,[],[<div id="served-by"><span id="served-by-label"></span>&nbsp;<span id="os-info"></span>&nbsp;<wbr><span id="coolwsd-id"></span></div>],[<p></p>])
             <div id="slow-proxy"></div>
-            <p>Copyright © _YEAR_, VENDOR.</p>
+            <p style="margin-inline-end: auto;"><span dir="ltr">Copyright © _YEAR_, VENDOR.</span></p>
           </div>
         </div>
       </div>
@@ -270,21 +294,24 @@ m4_ifelse(MOBILEAPP,[true],
      [window.host = '';
       window.serviceRoot = '';
       window.hexifyUrl = false;
-      window.versionPath = '%VERSION%';
+      // We can't use %VERSION% here as there is no FileServer.cpp involved in a mobile app that
+      // would expand the %FOO% things. But it seems that window.versionPath is not used in the
+      // mobile apps anyway.
+      // window.versionPath = 'UNKNOWN';
       window.accessToken = '';
       window.accessTokenTTL = '';
       window.accessHeader = '';
       window.postMessageOriginExt = '';
       window.coolLogging = 'true';
       window.enableWelcomeMessage = false;
-      window.enableWelcomeMessageButton = false;
       window.outOfFocusTimeoutSecs = 1000000;
       window.idleTimeoutSecs = 1000000;
       window.protocolDebug = false;
       window.frameAncestors = '';
       window.socketProxy = false;
       window.tileSize = 256;
-      window.uiDefaults = {};],
+      window.uiDefaults = {};
+      window.useIntegrationTheme = 'false';],
      [window.host = '%HOST%';
       window.serviceRoot = '%SERVICE_ROOT%';
       window.hexifyUrl = %HEXIFY_URL%;
@@ -294,16 +321,18 @@ m4_ifelse(MOBILEAPP,[true],
       window.accessHeader = '%ACCESS_HEADER%';
       window.postMessageOriginExt = '%POSTMESSAGE_ORIGIN%';
       window.coolLogging = '%BROWSER_LOGGING%';
+      window.coolwsdVersion = '%COOLWSD_VERSION%';
       window.enableWelcomeMessage = %ENABLE_WELCOME_MSG%;
-      window.enableWelcomeMessageButton = %ENABLE_WELCOME_MSG_BTN%;
       window.userInterfaceMode = '%USER_INTERFACE_MODE%';
+      window.useIntegrationTheme = '%USE_INTEGRATION_THEME%';
       window.enableMacrosExecution = '%ENABLE_MACROS_EXECUTION%';
       window.outOfFocusTimeoutSecs = %OUT_OF_FOCUS_TIMEOUT_SECS%;
       window.idleTimeoutSecs = %IDLE_TIMEOUT_SECS%;
       window.protocolDebug = %PROTOCOL_DEBUG%;
-      window.frameAncestors = '%FRAME_ANCESTORS%';
+      window.frameAncestors = decodeURIComponent('%FRAME_ANCESTORS%');
       window.socketProxy = %SOCKET_PROXY%;
       window.tileSize = 256;
+      window.groupDownloadAsForNb = %GROUP_DOWNLOAD_AS%;
       window.uiDefaults = %UI_DEFAULTS%;])
 
 // This is GLOBAL_JS:
@@ -322,15 +351,22 @@ link.setAttribute("type", "text/css");
 var brandingLink = document.createElement('link');
 brandingLink.setAttribute("rel", "stylesheet");
 brandingLink.setAttribute("type", "text/css");
+
+var theme_name = document.getElementsByName("theme")[[0]] ? document.getElementsByName("theme")[[0]].value : '';
+var theme_prefix = '';
+if(window.useIntegrationTheme === 'true' && theme_name.includes("nextcloud")) {
+    theme_prefix = 'nextcloud/';
+}
+
 if (window.mode.isMobile()) {
     [link.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])[device-mobile.css');]
-    [brandingLink.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])m4_ifelse(IOSAPP,[true],[Branding/])[branding-mobile.css');]
+    [brandingLink.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])m4_ifelse(IOSAPP,[true],[Branding/])[' + theme_prefix + 'branding-mobile.css');]
 } else if (window.mode.isTablet()) {
     [link.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])[device-tablet.css');]
-    [brandingLink.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])m4_ifelse(IOSAPP,[true],[Branding/])[branding-tablet.css');]
+    [brandingLink.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])m4_ifelse(IOSAPP,[true],[Branding/])[' + theme_prefix + 'branding-tablet.css');]
 } else {
     [link.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])[device-desktop.css');]
-    [brandingLink.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])[branding-desktop.css');]
+    [brandingLink.setAttribute("href", ']m4_ifelse(MOBILEAPP,[],[%SERVICE_ROOT%/browser/%VERSION%/])[' + theme_prefix + 'branding-desktop.css');]
 }
 document.getElementsByTagName("head")[[0]].appendChild(link);
 document.getElementsByTagName("head")[[0]].appendChild(brandingLink);
@@ -353,6 +389,9 @@ m4_ifelse(MOBILEAPP,[true],
        <script src="%SERVICE_ROOT%/browser/%VERSION%/bundle.js" defer></script>
   ])
 )m4_dnl
-    <!--%BRANDING_JS%--> <!-- logo onclick handler -->
-    <!--%CSS_VARIABLES%-->
+
+    m4_ifelse(MOBILEAPP,[true],
+    [<script src="m4_ifelse(IOSAPP,[true],[Branding/])branding.js"></script>],
+    [<!--%BRANDING_JS%--> <!-- logo onclick handler -->
+    <!--%CSS_VARIABLES%-->])
 </body></html>

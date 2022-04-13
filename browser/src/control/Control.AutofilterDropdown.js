@@ -1,9 +1,12 @@
 /* -*- js-indent-level: 8 -*- */
 /*
- * L.Control.AutofilterDropdown
+ * L.Control.AutofilterDropdown - DEPRECATED
+ * handles autofilter dropdown in core versions < 22.05
+ * in newer core autofilter is a regular popup handled in Control.JSDialog.js
+ * TODO: remove this file when co-2021 support will be not needed
  */
 
-/* global $ */
+/* global app $ */
 L.Control.AutofilterDropdown = L.Control.extend({
 	container: null,
 	subMenu: null,
@@ -20,8 +23,8 @@ L.Control.AutofilterDropdown = L.Control.extend({
 		L.DomEvent.on(this.map, 'mouseup', this.onClosePopup, this);
 		this.map.on('jsdialogupdate', this.onJSUpdate, this);
 
-		this.builder = new L.control.jsDialogBuilder({mobileWizard: this, map: this.map, cssClass: 'autofilter'});
-		this.subMenuBuilder = new L.control.jsDialogBuilder({mobileWizard: this, map: this.map, cssClass: 'autofilter'});
+		this.builder = new L.control.jsDialogBuilder({mobileWizard: this, map: this.map, cssClass: 'autofilter jsdialog'});
+		this.subMenuBuilder = new L.control.jsDialogBuilder({mobileWizard: this, map: this.map, cssClass: 'autofilter jsdialog'});
 	},
 
 	onRemove: function() {
@@ -84,29 +87,22 @@ L.Control.AutofilterDropdown = L.Control.extend({
 		if (!isSubMenu && this.subMenu)
 			L.DomUtil.remove(this.subMenu);
 
-		var scale = this._map.getZoomScale(this._map.getZoom(), this._map.options.defaultZoom);
+		// only difference is when file is RTL not UI
+		// var isViewRTL = document.documentElement.dir === 'rtl';
+		var isSpreadsheetRTL = this._map._docLayer.isCalcRTL();
+
+		var scale = this._map.zoomToFactor(this._map.getZoom());
 		var origin = this._map.getPixelOrigin();
 		var panePos = this._map._getMapPanePos();
-		var cursorPos = this._map._docLayer.getCursorPos();
 
-		// autofilter docking window position is relative to the main window
-		// we have to take into account calc input bar and notebookbar height (where spreadsheet starts)
-		// best to base on input bar position and size (it can be also expanded)
-		var spreadsheetAreaOffset = new L.Point(35, 75); // in classic toolbar mode
+		var offsetX = isSpreadsheetRTL ? 0 : app.sectionContainer.getSectionWithName(L.CSections.RowHeader.name).size[0];
+		var offsetY = app.sectionContainer.getSectionWithName(L.CSections.ColumnHeader.name).size[1];
 
-		var calcInputBar = this._map.dialog._calcInputBar;
-		var offsetX = spreadsheetAreaOffset.x;
-		var offsetY = calcInputBar ?
-			(spreadsheetAreaOffset.y + (calcInputBar.top - 28) + (calcInputBar.height - 29))
-			: spreadsheetAreaOffset.y;
+		var left = parseInt(data.posx) * scale;
+		var top = parseInt(data.posy) * scale;
 
-		if (parseInt(data.posx) === 0 && parseInt(data.posy) === 0)
-			var corePoint = new L.Point(this.position.x, this.position.y);
-		else
-			corePoint = new L.Point(parseInt(data.posx) - offsetX, parseInt(data.posy) - offsetY);
-
-		var left = corePoint.x * scale;
-		var top = corePoint.y * scale;
+		if (left < 0)
+			left = -1 * left;
 
 		var splitPanesContext = this._map.getSplitPanesContext();
 		var splitPos = new L.Point(0, 0);
@@ -122,14 +118,11 @@ L.Control.AutofilterDropdown = L.Control.extend({
 		if (top >= splitPos.y && newTop >= 0)
 			top = newTop;
 
-		// some documents with split panes have coordinates increased by split position...
-		if (left >= L.Map.THIS._docLayer._painter._sectionContainer.getSectionWithName(L.CSections.ColumnHeader.name).size[0]) {
-			if (cursorPos.x >= splitPos.x && left >= splitPos.x)
-				left = left - splitPos.x;
+		if (isSpreadsheetRTL)
+			left = this._map._size.x - left;
 
-			if (cursorPos.y >= splitPos.y && top >= splitPos.y)
-				top = top - splitPos.y;
-		}
+		left = left + offsetX;
+		top = top + offsetY;
 
 		var mainContainer = null;
 		var builder = null;
@@ -165,6 +158,7 @@ L.Control.AutofilterDropdown = L.Control.extend({
 		L.DomUtil.setStyle(mainContainer, 'margin-top', top + 'px');
 
 		builder.build(mainContainer, [data]);
+		mainContainer.firstChild.dir = document.documentElement.dir;
 
 		var height = $(mainContainer).height();
 		if (top + height > $('#document-container').height()) {
@@ -178,8 +172,8 @@ L.Control.AutofilterDropdown = L.Control.extend({
 		var width = $(mainContainer).width();
 		if (left + width > $('#document-container').width()) {
 			var newLeftPosition = left - width;
-			if (newTopPosition < 0)
-				newTopPosition = 0;
+			if (newLeftPosition < 0)
+				newLeftPosition = 0;
 			L.DomUtil.setStyle(mainContainer, 'margin-left', newLeftPosition + 'px');
 			this.position.x = newLeftPosition;
 		}
@@ -234,7 +228,7 @@ L.Control.AutofilterDropdown = L.Control.extend({
 		this.subMenu = null;
 
 		if (this.builder.windowId)
-			this.builder.callback('button', 'click', {id: 'cancel'}, null, this.builder);
+			this.builder.callback('pushbutton', 'click', {id: 'cancel'}, null, this.builder);
 		this.builder.setWindowId(null);
 		this.subMenuBuilder.setWindowId(null);
 	}

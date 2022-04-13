@@ -1,15 +1,14 @@
-/* global describe it cy require afterEach expect */
+/* global describe it cy Cypress require afterEach expect */
 
 var helper = require('../../common/helper');
 var calcHelper = require('../../common/calc_helper');
 var mobileHelper = require('../../common/mobile_helper');
 
 describe('Trigger hamburger menu options.', function() {
-	var testFileName = '';
+	var testFileName;
 
 	function before(testFile) {
-		testFileName = testFile;
-		helper.beforeAll(testFileName, 'calc');
+		testFileName = helper.beforeAll(testFile, 'calc');
 
 		// Click on edit button
 		mobileHelper.enableEditingMobile();
@@ -21,10 +20,6 @@ describe('Trigger hamburger menu options.', function() {
 
 	it('Save', function() {
 		before('hamburger_menu.ods');
-
-		// Change the document content and save it
-		calcHelper.clickOnFirstCell(true, true);
-
 		calcHelper.selectEntireSheet();
 
 		cy.get('#copy-paste-container table td')
@@ -43,8 +38,13 @@ describe('Trigger hamburger menu options.', function() {
 
 		mobileHelper.selectHamburgerMenuItem(['File', 'Save']);
 
+		//reset get to original function
+		Cypress.Commands.overwrite('get', function(originalFn, selector, options) {
+			return originalFn(selector, options);
+		});
+
 		// Reopen the document and check content.
-		helper.beforeAll(testFileName, 'calc', true);
+		helper.reload(testFileName, 'calc', true);
 
 		mobileHelper.enableEditingMobile();
 
@@ -58,14 +58,17 @@ describe('Trigger hamburger menu options.', function() {
 		before('hamburger_menu.ods');
 
 		// A new window should be opened with the PDF.
-		cy.window()
+		helper.getCoolFrameWindow()
 			.then(function(win) {
 				cy.stub(win, 'open');
 			});
 
 		mobileHelper.selectHamburgerMenuItem(['File', 'Print']);
 
-		cy.window().its('open').should('be.called');
+		helper.getCoolFrameWindow()
+			.then(function(win) {
+				cy.wrap(win).its('open').should('be.called');
+			});
 	});
 
 	it('Download as PDF', function() {
@@ -197,7 +200,7 @@ describe('Trigger hamburger menu options.', function() {
 		cy.get('.vex-dialog-message')
 			.should('have.text', 'Please use the copy/paste buttons on your on-screen keyboard.');
 
-		cy.get('.vex-dialog-button-primary.vex-dialog-button.vex-first')
+		cy.get('.vex-dialog-button-primary.vex-dialog-button')
 			.click();
 
 		cy.get('.vex-dialog-form')
@@ -219,7 +222,7 @@ describe('Trigger hamburger menu options.', function() {
 		cy.get('.vex-dialog-message')
 			.should('have.text', 'Please use the copy/paste buttons on your on-screen keyboard.');
 
-		cy.get('.vex-dialog-button-primary.vex-dialog-button.vex-first')
+		cy.get('.vex-dialog-button-primary.vex-dialog-button')
 			.click();
 
 		cy.get('.vex-dialog-form')
@@ -241,7 +244,7 @@ describe('Trigger hamburger menu options.', function() {
 		cy.get('.vex-dialog-message')
 			.should('have.text', 'Please use the copy/paste buttons on your on-screen keyboard.');
 
-		cy.get('.vex-dialog-button-primary.vex-dialog-button.vex-first')
+		cy.get('.vex-dialog-button-primary.vex-dialog-button')
 			.click();
 
 		cy.get('.vex-dialog-form')
