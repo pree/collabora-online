@@ -43,6 +43,8 @@ spec:
             - containerPort: {{ .Values.global.app.service.internalPort }}
           securityContext:
             readOnlyRootFilesystem: false
+            capabilities:
+              add: ["SYS_CHROOT", "MKNOD", "FOWNER", "CHOWN", "SYS_ADMIN"]
         {{- if .Values.probes.liveness.activate }}
           livenessProbe:
             httpGet:
